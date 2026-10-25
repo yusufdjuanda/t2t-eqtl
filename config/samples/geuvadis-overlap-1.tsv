@@ -1,0 +1,2 @@
+run	sample	ancestry	sex	lab	read_pairs	url_1	url_2	md5_1	md5_2
+ERR188222	HG00265	British	male	2	29160997	https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR188/ERR188222/ERR188222_1.fastq.gz	https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR188/ERR188222/ERR188222_2.fastq.gz	71db226ecd1a521428179bc750141ec9	de9f260ddb29565daabf7fceff8c4a5d

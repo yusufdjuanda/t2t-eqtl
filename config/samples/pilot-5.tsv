@@ -1,0 +1,6 @@
+run	sample	ancestry	sex	lab	read_pairs	url_1	url_2	md5_1	md5_2
+ERR188298	NA18867	Yoruba	female	1	28283821	https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR188/ERR188298/ERR188298_1.fastq.gz	https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR188/ERR188298/ERR188298_2.fastq.gz	41cbf81b57eb7052c2bfe6d91bf80dfa	27f85728a68d134c7236fc8baa15aef8
+ERR188139	NA18917	Yoruba	male	1	26971208	https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR188/ERR188139/ERR188139_1.fastq.gz	https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR188/ERR188139/ERR188139_2.fastq.gz	17733cd8a8eb8b618e76c370ed6ddf68	5ff63e60a483632cef582ad16d0de2f0
+ERR188107	NA12342	Utah	male	1	29022959	https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR188/ERR188107/ERR188107_1.fastq.gz	https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR188/ERR188107/ERR188107_2.fastq.gz	832e7dcab80f80304a9073cbdfee6ed4	f928db2154e4f5d39ad7a33dc4d0738d
+ERR188242	HG00258	British	female	1	29322467	https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR188/ERR188242/ERR188242_1.fastq.gz	https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR188/ERR188242/ERR188242_2.fastq.gz	9395dbcb1e1e63799bbe5090eb137e92	88fdecf74ffd4fc35e533651f79cfce7
+ERR188197	HG00341	Finnish	male	2	29464398	https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR188/ERR188197/ERR188197_1.fastq.gz	https://ftp.sra.ebi.ac.uk/vol1/fastq/ERR188/ERR188197/ERR188197_2.fastq.gz	1303385860613dbab8c8989109baecda	1db32f79d787c5c7a408a0d8587ef197

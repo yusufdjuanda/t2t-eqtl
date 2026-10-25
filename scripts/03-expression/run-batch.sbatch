@@ -1,0 +1,44 @@
+#!/bin/bash
+#SBATCH --job-name=t2t-nf3
+#SBATCH --partition=long
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=8G
+#SBATCH --time=3-00:00:00
+#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/03-expression/%x_%j.out
+#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/03-expression/%x_%j.err
+# Step 3, part 2: Nextflow head job for one batch; then delete the .sra of every run whose results are complete.
+#
+#   sbatch scripts/03-expression/run-batch.sbatch <cohort> <batch> [samplesheet]
+#   sbatch scripts/03-expression/run-batch.sbatch mage 1 test        (2-run test: profile test)
+#
+# Each batch has its own launch folder (work/03-expression/launch/<cohort>-b<batch>/), so rerunning the same
+# command resumes that batch: finished tasks are reused from the shared work folder, and runs with
+# complete.txt are skipped altogether. Trace: logs/03-expression/trace-<cohort>-b<batch>-<jobid>.tsv.
+set -euo pipefail
+COHORT=${1:?cohort}; BATCH=${2:?batch}; SHEET=${3:-}
+ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+PROFILE=slurm
+if [[ $SHEET == test ]]; then PROFILE=slurm,test; SHEET=$ROOT/config/samplesheets/test-mage-2.csv; fi
+SHEET=${SHEET:-$ROOT/config/samplesheets/$COHORT.csv}
+LAUNCH=$ROOT/work/03-expression/launch/$COHORT-b$BATCH
+SRA=$ROOT/work/03-expression/sra/$COHORT
+RES=$ROOT/results/03-expression/$COHORT
+module load nextflow/25.10.4
+export TMPDIR=/scratch/$USER/t2t-eqtl/tmp/$SLURM_JOB_ID; mkdir -p $TMPDIR; trap 'rm -rf $TMPDIR' EXIT
+export NXF_OPTS='-Xms1g -Xmx4g'
+mkdir -p $LAUNCH; cd $LAUNCH
+echo "start $(date -u +%FT%TZ) $COHORT batch $BATCH"
+
+nextflow run $ROOT/scripts/03-expression/nextflow/main.nf -profile $PROFILE \
+  --input $SHEET --batch $BATCH \
+  -work-dir $ROOT/work/03-expression/nf-work/$COHORT -resume \
+  -with-trace $ROOT/logs/03-expression/trace-$COHORT-b$BATCH-$SLURM_JOB_ID.tsv
+
+# delete .sra only for runs whose results are complete
+n=0
+for d in $SRA/*/; do
+  run=$(basename $d)
+  if [[ -f $RES/$run/complete.txt ]]; then rm -rf $d; n=$((n+1)); fi
+done
+echo "deleted .sra of $n completed runs; $(du -sh $SRA 2>/dev/null | cut -f1) left in $SRA"
+echo "end $(date -u +%FT%TZ)"

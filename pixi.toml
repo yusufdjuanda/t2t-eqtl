@@ -1,0 +1,31 @@
+[workspace]
+channels = ["conda-forge", "bioconda"]
+name = "t2t-eqtl"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "3.11.*"
+pandas = ">=3.0.6,<4"
+matplotlib = ">=3.11.2,<4"
+gffread = ">=0.12.9,<0.13"
+openpyxl = ">=3.1.5,<4"
+ucsc-liftover = ">=482,<483"
+plink2 = ">=2.0.0a.7.8,<3"
+pytorch-cpu = ">=2.14.1,<3"
+scipy = ">=1.17.1,<2"
+pgenlib = ">=0.95.1,<0.96"
+pyarrow = ">=25.0.0,<26"
+seaborn = ">=0.13.2,<0.14"
+bx-python = ">=0.15.1,<0.16"
+pybigwig = ">=0.3.26,<0.4"
+pandas-plink = ">=2.3.2,<3"
+bioconductor-qvalue = ">=2.42.0,<3"
+rpy2 = ">=3.6.8,<4"
+
+# tensorQTL 1.0.10 and qtl 0.1.10 are vendored from PyPI wheels (sha256-checked) in envs/vendor/, because pixi
+# cannot reach its conda-PyPI mapping service from Karakoram (connection reset, 2026-10-17).
+[activation.env]
+PYTHONPATH = "$PIXI_PROJECT_ROOT/envs/vendor/tensorqtl-1.0.10:$PIXI_PROJECT_ROOT/envs/vendor/qtl-0.1.10"
