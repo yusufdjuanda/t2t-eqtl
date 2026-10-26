@@ -426,11 +426,12 @@ work/02-rnaseq-pilot/              fastq/<run>/, bam/<ref>/<run>.bam
 | 2 | Five-sample RNA-seq pilot on both references (go/no-go 1) | **done 2026-10-17**; result supports go (13.7). Decisions made, metadata fetched, scripts written, pixi environment created. Submitted 09:12 UTC: references 360122 (array 0–1), FASTQ download 360123, alignment 360124. 360123/360124 cancelled 09:14 (ENA refused most of 10 parallel HTTPS streams); download cut to 2 streams with longer backoff and resubmitted as 360127. 360122_0 failed after 1 min: gffread rejects RefSeq gene records (`transcript_id ""`); fixed by passing it only transcript/exon/CDS records, tested on both GTFs; 360122_1 and alignment 360128 cancelled. Resubmitted: references 360138, alignment 360139. 360138 done: GRCh38 09:52 (20 min, 52 GB peak; 59,257 genes, 195 contigs), T2T 09:54 (29 min, 48 GB; 58,600 genes incl. 37 chrM, 26 contigs, chrY PAR1 verified all N). Indexes 37 + 30 GB. ENA download 360127 got one connection at ~0.75 MB/s (~8 h for the pilot); NCBI SRA tested at ~12 MB/s, so at the user's choice 360127/360139 were cancelled, partial ENA files deleted, and reads fetched from NCBI SRA instead (`fetch-sra.sbatch`, job 360219); alignment 360220 (after 360138 and 360219). 360219 done 10:14 (18 min, 3 runs in parallel, no S3 resets): 5 runs, 21.2 GB FASTQ, read pairs equal to ENA for all five. 360220 done 10:52 (10 tasks, 5.3–9.9 min each; peak RSS STAR 32–33 GB, salmon ≤ 12 GB). `compare-expression.py` run 10:56. 360122 waits for memory: the `t2t-atlas` ChIP-seq tasks held 1,368 of 1,470 GB | section 13; `scripts/02-rnaseq-pilot/` |
 | 2b | Five-sample MAGE pilot (+ HG00265 in both cohorts) | **done 2026-10-17**: effect replicates (13.8). Jobs 360465 (MAGE download, 22 min), 360466 (ERR188222), 360467 (MAGE alignments, 10 × 8–9 min), 360468 (ERR188222 alignments) | section 13.8 |
 | 3 | Full expression: MAGE (discovery) then Geuvadis (replication), three references | 2026-10-17: pipeline restructured (Nextflow DSL2: entry, workflow, module, profiles) with CSV samplesheets; 150 bp STAR indexes 360593; 2-run test 360624 passed; **MAGE submitted 15:25; batches 2–13 resubmitted 17:16 after a download fix (13A.5)** | section 13A; `scripts/03-expression/`, `config/samplesheets/` |
-| 3c | Full expression, Geuvadis (replication): 652 runs, 451 individuals, 2×76 bp, 11 batches, three references (oh75 indexes) | **submitted 2026-10-25 10:00 UTC** with `submit-cohort.sh geuvadis`: fetch/run pairs 365827/365828 … 365847/365848 (list in `logs/03-expression/submitted-geuvadis-20261025T100000Z.tsv`); scratch 5.2 TB free at launch | section 13A |
+| 3c | Full expression, Geuvadis (replication): 652 runs, 451 individuals, 2×76 bp, 11 batches, three references (oh75 indexes) | **submitted 2026-10-25 10:00 UTC** with `submit-cohort.sh geuvadis`: fetch/run pairs 365827/365828 … 365847/365848 (list in `logs/03-expression/submitted-geuvadis-20261025T100000Z.tsv`); scratch 5.2 TB free at launch. **2026-10-26: scratch full again** (t2t-atlas 4.7 TB): batches 5 and 6 lost tasks ('terminated by external system'; 63 runs without results), batch-7 download paused by the 400 GB guard at 297/652 runs. With the user's approval deleted our Nextflow work (MAGE 90 GB, Geuvadis 83 GB), the .sra of the 57 completed Geuvadis runs (152 GB) and tmp/vmtest + old-docs; scratch 125 → 449 GB free. The 63 unfinished runs keep their .sra. Download resumed 10:01 UTC; batches 5 and 6 resubmitted (user's approval) as 370298 → 370299 to process the 63 runs | section 13A |
 | 3b | Third reference: FixItFelix patched GRCh38 | decided 2026-10-17 (user); reference built (360623); in the MAGE run | section 13A.3 |
 | 4 | Genotypes for 1,089 individuals: T2T subset (360598) and GRCh38 NYGC panel download (360594) | started 2026-10-17 | section 13A.2 |
 | 5 | cis-eQTL mapping, MAGE (731 individuals), chr1–22, STAR counts, matched variants, three references | **done 2026-10-25**. Genotypes 365584/365585; tensorQTL arrays 365591 (T2T), 365592 (GRCh38), 365593 (patched GRCh38), 22 tasks each, 0 failed, 22:43–00:09 UTC, ~44 CPU h per reference. eGenes (FDR 0.05): 15,013 / 15,259 / 15,224 (MAGE paper: ~15,000). chrX and salmon still to run | section 13B.3; `results/05-eqtl/mage/` |
-| 6 | Comparison between references (H0), MAGE | **first pass done 2026-10-25** (`compare-eqtl.py`, 15 min, 9 GB, run on the login node): positive control reproduced (PWP2, CBS, U2AF1); see 13B.3. Same-variant effect sizes (`compare-effects.py`, via `compare-eqtl.sbatch`, job 365661): patch changes 9 genes, all in its regions; T2T vs patched GRCh38 changes 127 unflagged genes, none in patched regions (56 SD). Salmon run: prep 365657 failed (`--wrap` runs `sh`, no pipefail), resubmitted as `prepare-phenotypes-covariates.sbatch` 365662, tensorQTL 365663–365665 (0 failed), comparison 365789. **Robust set (STAR and salmon agree): 57 unflagged genes changed by T2T vs patched GRCh38, none in patched regions; patch control 8/9** (69 before the allele-sign fix, reruns 366132/366133) | section 13B.3; `results/06-compare/eqtl-comparison/mage/star-matched/` |
+| 6 | Comparison between references (H0), MAGE | **first pass done 2026-10-25** (`compare-eqtl.py`, 15 min, 9 GB, run on the login node): positive control reproduced (PWP2, CBS, U2AF1); see 13B.3. Same-variant effect sizes (`compare-effects.py`, via `compare-eqtl.sbatch`, job 365661): patch changes 9 genes, all in its regions; T2T vs patched GRCh38 changes 127 unflagged genes, none in patched regions (56 SD). Salmon run: prep 365657 failed (`--wrap` runs `sh`, no pipefail), resubmitted as `prepare-phenotypes-covariates.sbatch` 365662, tensorQTL 365663–365665 (0 failed), comparison 365789. **Read destination done (job 366433; 33/57 with a clear partner). All-variants tensorQTL 366424–366426 done 2026-10-25 19:22 (H1: 59 genes led by T2T-only variants, 9 found only with them; job 366638); H1 lead-variant QC job 370504 on 2026-10-26: 22 solid / 25 borderline / 12 doubtful, 15 solid genes where the T2T-only variant carries signal). Robust set (STAR and salmon agree): 57 unflagged genes changed by T2T vs patched GRCh38, none in patched regions; patch control 8/9** (69 before the allele-sign fix, reruns 366132/366133). 2026-10-26: lncRNA breakdown (9 of 57; ad hoc) and reversed eQTLs: 13 true reversals, lead variant located with `reversal-variant-location.sbatch` (370515 failed, `--wrap` runs sh; 370516, 14 s) | section 13B.3; `results/06-compare/eqtl-comparison/mage/star-matched/` |
+| 7 | Presentation materials (oral-talk overview) | **done 2026-10-25**: `scripts/07-presentation/` — `prepare-figure-data.py` (job 366441, 1 min, 9 GB), `pipeline.dot` (Graphviz, Fig 1), `make-figures.R` (ggplot2, Figs 2–10), `build-workbook.py` → `results/07-presentation/t2t-eqtl-project-overview.xlsx` (talk outline, data sources, samples, pipeline, one sheet per figure, key results, 57 genes, glossary, status). pixi: added graphviz, r-ggrepel, r-patchwork, r-data.table, r-scales. LibreOffice is not on the cluster, so formulas are not pre-calculated (set to recalculate on open; logic checked in Python). Talk deck: `build-deck.py` (python-pptx; node is not on the cluster) → `results/07-presentation/t2t-eqtl-talk.pptx`, 18 slides with speaker notes; pixi: added python-pptx, defusedxml. Journal-style write-up (title, abstract, methods with datasets, results with Figs 1-10, discussion, conclusion, next steps, references) as a Claude Doc: https://claude.ai/artifact/SKsKT2bh58uE62Sz41gVBb (references written from memory, DOIs to verify; not maintained after 2026-10-26, the Word file below is the current version). Word version: `results/07-presentation/manuscript/t2t-eqtl-manuscript.docx` (pandoc from `t2t-eqtl-manuscript.md`, 10 figures embedded; pixi: added pandoc) | `results/07-presentation/` |
 
 ## 13. Step 2: five-sample RNA-seq pilot (go/no-go 1)
 
@@ -1148,13 +1149,156 @@ So T2T agrees with the patch where the patch applies. This is the FixItFelix res
 - The remaining protein-coding genes outside SDs (UBC, ELOB, H3-3A, GPX1, RPL9, RPL13, RPS2, RPSA, EIF4B, PTGES3, PCCA, IFITM3) are highly expressed and keep r 0.86–0.99. They fit a small share of reads moving to processed-pseudogene copies; this needs checking per gene.
 - **Paralog pairs that switch:** ASAH2/ASAH2B, CCZ1/CCZ1B, TCAF2/TCAF2P1, STAG3L1/STAG3L3, PMS2/PMS2CL, PDPR/PDPR2P, NUTM2A/D vs NUTM2E, RASA4B/RASA4DP, ANAPC1/ANAPC1P2.
 
+**Read destination** (`scripts/06-compare/read-destination.py`, job 366433, 13 s, 2 GB; 2026-10-25).
+
+*Method.* For each of the 57 genes:
+- per individual, delta = CPM on T2T − CPM on patched GRCh38, with genes matched by GeneID; a gene missing on one reference counts as 0 there;
+- the partner is the gene whose delta moves most strongly the other way across individuals (most negative correlation);
+- partner_frac is the share of the gene's delta that the partner takes.
+
+Output: `results/06-compare/eqtl-comparison/mage/robust-matched/read-destination-chm13v2.0-vs-grch38-ffx.tsv`.
+
+*Results.* 33 of 57 genes have a partner with r < −0.5, and 16 have r < −0.8.
+- **Paralog swaps** (r −0.7 to −0.96):
+  - CCZ1↔CCZ1B (−0.96)
+  - ASAH2↔ASAH2B (−0.91)
+  - IFITM3↔IFITM2 (−0.92)
+  - SDHAP1↔SDHAP2 (−0.88)
+  - LOC642846↔DDX12P (−0.86)
+  - WHAMMP1↔WHAMMP4 (−0.83)
+  - BMP8A↔BMP8B (−0.81)
+  - PMS2↔PMS2CL (−0.80)
+  - DHRS4L2↔DHRS4 (−0.79)
+  - GTF2IP4↔GTF2IP1 (−0.73)
+  - STAG3L1↔STAG3L2/STAG3L3 (−0.70/−0.66)
+- **Processed pseudogenes:** RPSA↔RPSA2 (−0.94; T2T gives RPSA 105 CPM fewer reads, 46% of them to RPSA2) and H3-3A↔H3P6 (−0.71). This is the mechanism suggested for the highly expressed genes.
+- **Reads taken by genes that exist only on T2T:**
+  - SMG1P6 → LOC124907836 in T2T-new sequence (−0.94);
+  - PDPR and PDPR2P → LOC128966601 in T2T-new sequence (−0.82/−0.59). PDPR has 64.5 CPM on GRCh38 and 15.2 on T2T, but LOC128966601 takes only 7.5% of that difference (partner_frac 0.075; about 3.7 of 49 CPM), so most of PDPR's reads on T2T go elsewhere (not yet traced). For PDPR2P it takes 95%;
+  - IFITM3-AS1 → LOC124906937, a T2T-only annotation (−0.96);
+  - LGALS9B and GLIDR → T2T-new-sequence genes (−0.66).
+  - In these cases GRCh38 lacks the sequence, so its reads pile onto the nearest paralog: a direct example of missing sequence creating an eQTL artefact. Note: "33 of 57 have a partner" means a single gene mirrors the change (r < −0.5), not that it takes all the reads; the share ranges from 7.5% (PDPR) to about 100% (CCZ1B 86%, PMS2CL 98%, PDPR2P 95%). Wording corrected in the manuscript and talk materials 2026-10-26.
+- **No clear partner** (r > −0.4): RPL9, RPL13, RPS2, GPX1, PTGES3, UBC, EIF4B, ELOB, SMN2, NUTM2A/D/E, RASA4B/RASA4DP and TCAF2/TCAF2P1 (−0.40).
+  - Their reads may go to several copies at once, or become multi-mapped and uncounted. Checking that needs the BAMs or per-contig counts.
+  - SMN2↔SMN1 is only −0.25, as expected: the two copies are nearly identical and both references contain both.
+- **Caution:** LOC124906110 (39 vs 3 CPM) correlates at about −0.84 with many unrelated genes (ANKRD17, SLAIN2, ZFC3H1). That looks like a sample-wide technical factor, not a paralog, so treat it with caution.
+
+**All variants and H1** (2026-10-25). tensorQTL with all variants (`--variants all`, jobs 366424–366426, 0 failed): 14,954 / 15,213 / 15,119 eGenes on T2T / GRCh38 / patched GRCh38. Lead variants of the 14,954 T2T eGenes:
+
+| Category of the lead variant | eGenes |
+|---|---:|
+| Matched on both panels | 13,111 |
+| T2T variant not called in the GRCh38 panel (mostly indels removed by panel filters) | 1,319 |
+| Not in the matching table (likely below MAF 0.01 in the 1,089 individuals, or truncated IDs of long alleles; not checked) | 270 |
+| Paired, but the allele frequency differs (paralogous) | 195 |
+| **In T2T-only sequence (H1)** | **59** |
+
+- 59 genes have their lead variant in sequence GRCh38 lacks. 9 of them are not eGenes when only matched variants are used.
+- Others become much stronger with the T2T-only variant, e.g. IVNS1ABP (p 1e-82 vs 1e-34), LOC128966600 in new chr9 sequence (q 1e-51 vs 0.007), LOC105373279 and OR2T34 (chr1 OR2T cluster), LOC101060632 and CBSLR.
+- Most stay eGenes through linked shared variants. So H1 adds examples, not the main result, as predicted in 4.4.
+- Script: ad hoc, job 366638. Table: `results/06-compare/eqtl-comparison/mage/h1-t2t-only-lead-variants.tsv`.
+
+**H1 lead-variant quality check** (2026-10-26, `h1-variant-qc.py` via `h1-variant-qc.sbatch`, job 370504 after two failed attempts 370480/370482; 43 min).
+
+The phased T2T panel carries no per-variant quality scores, only PASS sites and genotypes. Quality is therefore judged from three things:
+- **Genotypes in the 731 MAGE individuals.** Heterozygosity within each population: an excess of heterozygotes means two paralogues were called as one site. Hardy–Weinberg p within populations, and whether the site is multiallelic in the 3202 panel.
+- **Region.** censat satellite arrays, SD identity, RepeatMasker class, a length change in a tandem repeat, and whether the variant sits inside an exon of the gene.
+- **Signal.** The best shared (matched) variant for the gene, and the lead's p-value after conditioning on it.
+
+Calls:
+- *doubtful*: heterozygote excess (F < −0.1), HWE p < 1e-6, or a length change inside a satellite array;
+- *borderline*: any other flag;
+- *solid*: no flag.
+
+| Genotype call | Genes | T2T-only variant carries the signal (alone or with a shared variant) |
+|---|---:|---:|
+| Solid | 22 | 15 |
+| Borderline | 25 | 14 |
+| Doubtful | 12 | 5 |
+
+- **The 15 solid genes with their own signal are the defensible H1 examples.** They are IVNS1ABP, CBSLR and LOC105371651 (one 5-bp deletion at chr1:184763743), the chr1 OR2T cluster (OR2T2, LOC105373279, LOC128966579; one SNV), SHC1, WASH8P, ADSS1, CAPN15, VPS35L, KIF1A, PDCD2, TRIP6 and MNX1-AS2.
+- **Most borderline calls only reflect a multiallelic site in the panel.** In practice this means a nearby second allele, often a repeat.
+- **Doubtful cases are mostly length changes in HSat3 (GGAAT)n arrays.** Examples: ZNF25, HM13-AS1, LOC105379426, FRYL, and three chr9 lncRNAs. The other is OR2T34, with heterozygote excess.
+- **LOC128966600** (new chr9 sequence) is borderline: a (TG)n indel in a >99% SD. Its expression change is a reference effect regardless.
+- **22 of 59 are explained by, or inseparable from, shared variants.** Examples: CIP2A, DLG1, LOC105374445, and EHMT1, a perfect proxy. In these genes the T2T-only variant is just the best tag.
+- **The "9 eGenes only with T2T-only variants" are weak.**
+  - Six have a matched-variant q of 0.051–0.070, just above the cutoff.
+  - Three are genes in new sequence with no matched variant in cis (LOC124905534, LOC124908428, LOC124908450); two of these are doubtful.
+  - The cleanest are VPS35L and KIF1A (solid SNVs), but both are marginal (q 0.014 and 0.005).
+  - So H1 should be presented as **about 15 well-genotyped examples where the new variant carries signal**, not as new eGenes.
+- Table: `results/06-compare/eqtl-comparison/mage/h1-variant-qc.tsv`. `--classify-only` re-applies the calls without recomputing.
+
+**lncRNAs** (2026-10-26; T2T vs patched GRCh38, STAR, matched variants; from `star-matched/genes.tsv`, `robust-matched/changed-chm13v2.0-vs-grch38-ffx.tsv` and the read-destination table; ad hoc on the login node, < 1 min).
+
+*Share of lncRNAs in each gene list.* lncRNAs are 16% of eGenes but up to half of the reference-specific lists:
+
+| Gene list | Genes (T2T / GRCh38) | lncRNAs |
+|---|---:|---:|
+| All eGenes | 15,013 / 15,224 | 2,382 / 2,736 (16% / 18%) |
+| Robust changed set (unflagged) | 57 | 9 (16%) |
+| eGene on one reference only, lead fails the replication rule (tested on both) | 33 / 28 | 11 / 12 (~37%) |
+| Annotated on both, tested (expressed) on one only, unflagged | 101 / 76 | 49 / 41 (~50%) |
+| Annotated on one reference only (eGenes) | 158 / 524 | 88 / 466 (56% / 89%) |
+
+- One-reference-only, replication rule: T2T FAM27C, FAM27E3 (T2T-new sequence), ZBTB47-AS1, OR2A1-AS1, DDN-AS1; GRCh38 CCND2-AS1, BLK-AS1, LINC01410, LCMT1-AS1.
+- Likely reasons: low expression puts lncRNAs near the expression filter and the eGene threshold (threshold effects); RefSeq predicts `LOC…` lncRNAs per assembly (annotation, not sequence; not counted for H0); a few sit in sequence T2T added or fixed.
+
+*The 9 lncRNAs in the robust set* (slope T2T / GRCh38; CPM T2T / GRCh38; best read partner):
+
+| lncRNA | Region | Stronger on | Slope | CPM | Partner (r) | Reading |
+|---|---|---|---|---|---|---|
+| IFITM3-AS1 | other | T2T | −0.45 / −0.12 | 1.5 / 4.7 | LOC124906937, T2T-only annotation (−0.96) | clear read move |
+| LOC642846 | SD | T2T | −0.73 / −0.53 | 12.0 / 14.2 | DDX12P (−0.86) | paralog swap |
+| GLIDR | SD | T2T | +0.59 / −0.34 | 0.6 / 2.0 | gene in T2T-new sequence (−0.66) | reads move to new sequence; sign flips |
+| LOC124902471 | other | GRCh38 | −0.23 / −0.62 | 0.5 / 2.2 | TSPAN14-AS1 (−0.57) | weak partner |
+| MIR570HG | other | GRCh38 | +0.04 / −0.45 | 0.2 / 1.5 | LOC124906327 (−0.53) | weak partner, very low expression |
+| LOC105374445 | other | T2T | +1.37 / +0.72 | 1.0 / 2.6 | none (−0.50) | unclear |
+| RAD51B-AS1 | other | T2T | +0.29 / −0.11 | 2.1 / 1.3 | none (−0.42) | unclear; sign flips |
+| PPP4R3B-DT | other | T2T | −0.92 / −0.41 | 1.6 / 2.4 | none (−0.36) | unclear |
+| LOC124906110 | other | GRCh38 | −0.03 / +0.29 | 42.2 / 2.9 | ANKRD17 (−0.88) | probably technical (correlates with many unrelated genes) |
+
+- Usable examples: IFITM3-AS1, LOC642846, GLIDR. The broader lncRNA point ("the reference decides whether a lowly expressed lncRNA is detected") needs Geuvadis replication before it goes in the paper.
+
+**Reversed eQTLs** (2026-10-26; robust set, STAR slopes at the compared variant; `scripts/06-compare/reversal-variant-location.py` via `reversal-variant-location.sbatch`, job 370516, 14 s, 0.7 GB; first attempt 370515 failed because `--wrap` runs `sh`).
+
+*Which genes reverse.* 31 of the 57 genes have opposite-sign slopes, but only some are true reversals:
+
+| Class (nominal p of each slope) | Genes |
+|---|---:|
+| Both strong (p < 1e-5 on both references): true reversal | 13 |
+| Both nominal (p < 0.01 on both) | 6 |
+| One side near zero: eQTL present on one reference only, not a reversal | 12 |
+
+*The 13 true reversals* (slope T2T / patched GRCh38; z_diff STAR / salmon; where the compared variant lies, the same on both references):
+
+| Gene | Type | Slope | z_diff | Read partner (r) | Variant location |
+|---|---|---|---|---|---|
+| STAG3L1 | pseudogene, SD | −0.58 / +0.63 | −23.7 / −18.6 | STAG3L2 (−0.70) | outside exons, 153 kb from the gene, in an SD |
+| TCAF2P1 | pseudogene, SD | +0.78 / −0.45 | +22.4 / +49.8 | TCAF2 (−0.40) | **in an exon of its paralog TCAF2** |
+| ASAH2 | protein-coding | +0.77 / −0.53 | +21.0 / +27.0 | ASAH2B (−0.91) | outside exons, 534 kb |
+| ANAPC1P2 | pseudogene, SD | −0.47 / +0.36 | −20.4 / −21.9 | | outside exons, 134 kb, SD ≥ 98% |
+| PMS2CL | pseudogene, SD | −0.24 / +0.63 | −17.9 / −19.2 | PMS2 (−0.80) | outside exons, 6 kb, in an SD |
+| H3-3A | protein-coding | −0.14 / +0.32 | −17.8 / −23.9 | H3P6 (−0.71) | outside exons, 9 kb |
+| RPS2 | protein-coding | −0.15 / +0.41 | −17.6 / −12.8 | | **in its own exon** |
+| ELOB | protein-coding | −0.32 / +0.07 | −17.3 / −18.5 | | **in its own exon** (indel) |
+| TCAF2 | protein-coding, SD | −0.33 / +0.27 | −16.9 / −18.1 | TCAF2P1 | **in its own exon** (same variant as TCAF2P1) |
+| CCZ1 | protein-coding, SD | +0.65 / −0.25 | +14.7 / +14.6 | CCZ1B (−0.96) | outside exons, 894 kb, SD ≥ 98% |
+| RASA4DP | pseudogene, SD | −0.33 / +0.74 | −13.5 / −9.5 | | in an intron, SD ≥ 98% |
+| PPIP5K1P1-CATSPER2 | pseudogene, SD | +0.53 / −0.32 | +11.2 / +8.8 | PPIP5K1 (−0.53) | in an exon of STRC, 30 kb away, SD ≥ 98% |
+| NUTM2E | protein-coding, SD | −0.38 / +0.43 | −8.9 / −6.1 | | in an intron, SD ≥ 98% |
+
+*Reading.*
+- **Variant in transcribed sequence (4 of 13: RPS2, ELOB, and the TCAF2/TCAF2P1 pair at one variant, chr7:145008621).** Candidate "mapping eQTLs": the allele itself can make a read match one copy better than another (a processed pseudogene for RPS2 and ELOB, the paralog for TCAF2). The sign then depends on which copies the reference contains. TCAF2/TCAF2P1 is the clearest case: one exonic variant, mirror-image effects on the two copies, flipping between references.
+- **Variant outside exons (9 of 13), often far away (6–894 kb) and in SDs.** The allele cannot steer reads directly. More likely it tags a copy-number or structural difference between people (ctyper's model), which changes how many reads the copies receive; the references then split those reads differently. Supports adding ctyper copy number as a covariate.
+- Why it matters: colocalisation, Mendelian randomisation and TWAS use the direction of an eQTL, so a reversal can flip whether a risk allele is read as raising or lowering a gene. PMS2 (Lynch syndrome) and its pseudogene PMS2CL are a known clinical testing problem.
+- Not yet shown which reference is right. Allele-specific expression in heterozygotes would decide; it needs read alignments for these loci, which were not kept (only `keep-regions.bed` loci are).
+- Output: `results/06-compare/eqtl-comparison/mage/robust-matched/reversal-variant-location-chm13v2.0-vs-grch38-ffx.tsv` (all 31 opposite-sign genes).
+
 **Next steps.**
-- Per gene, find where its reads go on each reference and which paralog takes them (idxstats / region BAMs). This is the mechanism for each gene.
-- Check whether the changed genes overlap the ctyper copy-number genes, and add copy number as a covariate.
+- For genes without a clear partner, look at multi-mapped reads in the BAMs and per-contig counts.
+- Reversed eQTLs: allele-specific expression at the 13 loci on both references (needs realignment of a subset of samples with full BAMs).
+- Add ctyper copy number as a covariate: 34 of the 57 genes (60%) are in ctyper's 1KGP copy-number table, against 13% of eGenes tested on both references (symbol match, so a minimum; checked 2026-10-26).
 - Add chrX.
-- Replicate in Geuvadis.
-- Add chrX.
-- Map the ctyper copy numbers (covariate).
 - Replicate in Geuvadis.
 - Run `compare-eqtl.py` as a Slurm job next time, not on the login node.
 

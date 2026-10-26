@@ -1,0 +1,53 @@
+// Presentation figure 1: data sources and analysis pipeline of the T2T-native eQTL study.
+// Render: pixi run dot -Tpng -Gdpi=200 scripts/07-presentation/pipeline.dot -o results/07-presentation/figures/fig01-pipeline.png
+digraph pipeline {
+  graph [rankdir=TB, fontname="Arial", fontsize=14, nodesep=0.3, ranksep=0.45, pad=0.3, newrank=true,
+         label="T2T-native eQTL study: the same raw reads processed on three reference genomes", labelloc=t];
+  node  [shape=box, style="rounded,filled", fontname="Arial", fontsize=11, color="#555555", penwidth=1.1, margin="0.15,0.07"];
+  edge  [color="#666666", arrowsize=0.7, penwidth=1.1];
+
+  subgraph cluster_data {
+    label="Public data (section 4 / sheet Data sources)"; style="rounded,filled"; fillcolor="#F3F6FA"; color="#9AA9BC"; fontsize=12;
+    mage     [label="MAGE RNA-seq\nSRA PRJNA851328\n731 LCLs, 26 populations\n2x150 bp  (discovery)", fillcolor="#C9DDF2"];
+    geuv     [label="Geuvadis RNA-seq\nENA PRJEB3366\n451 LCLs, 5 populations\n2x76 bp  (replication)", fillcolor="#DCE8F5"];
+    gt2t     [label="1KGP genotypes on T2T\nSHAPEIT5 v1.1 (Zenodo 7612953)", fillcolor="#D8EDD3"];
+    g38      [label="1KGP genotypes on GRCh38\nNYGC 2022 phased panel", fillcolor="#D8EDD3"];
+    refs     [label="References + RefSeq RS_2025_08\nT2T-CHM13v2.0 | GRCh38 no-alt |\nFixItFelix patched GRCh38", fillcolor="#F6E3C6"];
+    tracks   [label="Region tracks\nT2T-only sequence, SDs,\nFixItFelix regions, ctyper CN", fillcolor="#F6E3C6"];
+  }
+
+  subgraph cluster_expr {
+    label="Step 3: expression (Nextflow, Slurm)"; style="rounded,filled"; fillcolor="#FBF7EE"; color="#C9B48A"; fontsize=12;
+    fetch    [label="prefetch + vdb-validate\n(read pairs = ENA)", fillcolor="white"];
+    star     [label="STAR 2.7.11b\nGeneCounts", fillcolor="white"];
+    salmon   [label="salmon 1.11.4\n(alignment mode)", fillcolor="white"];
+    mats     [label="Gene x individual\nmatrices per reference", fillcolor="#FFF1CC"];
+  }
+
+  subgraph cluster_geno {
+    label="Steps 1, 4, 6a: genotypes"; style="rounded,filled"; fillcolor="#F2F8F0"; color="#9CC28F"; fontsize=12;
+    sub      [label="Subset to expression\nindividuals, MAF >= 1%", fillcolor="white"];
+    match    [label="Variant matching T2T <-> GRCh38\n(liftOver only to pair;\nMAF and genotype agreement)", fillcolor="white"];
+    pgen     [label="plink2 pgen\nall | matched variants", fillcolor="#E3F2DD"];
+  }
+
+  subgraph cluster_qtl {
+    label="Step 5: cis-eQTL mapping (tensorQTL 1.0.10)"; style="rounded,filled"; fillcolor="#F6F0F8"; color="#B79CC4"; fontsize=12;
+    pheno    [label="TMM + inverse normal\n5 genotype PCs, sex,\n60 expression PCs", fillcolor="white"];
+    tqtl     [label="map_cis (10,000 perm.)\n+ map_nominal\nper chromosome x reference", fillcolor="white"];
+    egenes   [label="eGenes (FDR 5%)\n~15,000 per reference", fillcolor="#EBDDF1"];
+  }
+
+  subgraph cluster_cmp {
+    label="Step 6: comparison between references"; style="rounded,filled"; fillcolor="#FBEFEF"; color="#D19A9A"; fontsize=12;
+    eff      [label="Same gene, same variant:\neffect size difference (z)", fillcolor="white"];
+    robust   [label="Robust set: STAR AND salmon\nno artefact flag\n57 genes beyond the patch", fillcolor="#F7D4D4"];
+    dest     [label="Read destination:\nwhich paralog / pseudogene /\nT2T-only gene takes the reads", fillcolor="white"];
+    repl     [label="Replication in Geuvadis\n(running)", fillcolor="white", style="rounded,dashed,filled"];
+  }
+
+  mage -> fetch; geuv -> fetch; fetch -> star; refs -> star; star -> salmon; star -> mats; salmon -> mats;
+  gt2t -> sub; g38 -> sub; sub -> match; match -> pgen;
+  mats -> pheno -> tqtl; pgen -> tqtl; tqtl -> egenes -> eff; tracks -> eff;
+  eff -> robust -> dest; robust -> repl [style=dashed];
+}
