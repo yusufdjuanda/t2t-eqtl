@@ -10,8 +10,8 @@
 #
 #   sbatch scripts/06-compare/match-variants.sbatch [min MAF, default 0.01]
 #
-# Inputs: results/01b-expression-individuals-genotypes-chm13/geuvadis/<chr>.bcf (T2T; folder name inherited) and
-# results/04-expression-individuals-genotypes-grch38/expression/<chr>.bcf (GRCh38). Both: multiallelic sites split,
+# Inputs: results/01-genotypes/chm13v2.0/expression/<chr>.bcf (T2T) and
+# results/01-genotypes/grch38/expression/<chr>.bcf (GRCh38). Both: multiallelic sites split,
 # MAF recomputed in these individuals. Liftover (UCSC hs1ToHg38 chain) is used ONLY to pair variants that were called
 # independently on each reference, never to create genotypes.
 # Per chromosome (chr1-22, X), variants with MAF >= min in either set:
@@ -25,8 +25,8 @@
 set -euo pipefail
 MINMAF=${1:-0.01}
 ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
-T2T=$ROOT/results/01b-expression-individuals-genotypes-chm13/geuvadis
-G38=$ROOT/results/04-expression-individuals-genotypes-grch38/expression
+T2T=$ROOT/results/01-genotypes/chm13v2.0/expression
+G38=$ROOT/results/01-genotypes/grch38/expression
 CHAIN=$ROOT/data/references/liftover/hs1ToHg38.over.chain.gz
 OUT=$ROOT/results/06-compare/variant-matching
 module load bcftools/1.23.1

@@ -1,6 +1,6 @@
 """Step 6: compare cis-eQTL results between references (T2T-CHM13, GRCh38, FixItFelix-patched GRCh38) per gene.
 
-    pixi run python scripts/06-compare/compare-eqtl.py --cohort mage420 [--method star] [--variants matched] [--fdr 0.05]
+    pixi run python scripts/06-compare/compare-eqtl.py --cohort mage [--method star] [--variants matched] [--fdr 0.05]
 
 Inputs, per reference: results/05-eqtl/<cohort>/<ref>/<method>/{genes-tested.tsv, <variants>/cis-eqtl.tsv.gz,
 <variants>/nominal/*.parquet}; results/06-compare/{gene-classes.tsv, annotation-overlaps.tsv, variant-matching/}.

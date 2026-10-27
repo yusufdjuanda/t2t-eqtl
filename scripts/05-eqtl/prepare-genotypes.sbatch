@@ -16,16 +16,16 @@
 #   <geno>.all.{pgen,pvar,psam}       all variants passing MAF
 #   <geno>.matched.{pgen,pvar,psam}   only variants paired between references (results/06-compare/variant-matching/),
 #                                     the set for the main comparison (docs/t2t-eqtl.md 13B)
-# Inputs: t2t    results/01b-expression-individuals-genotypes-chm13/geuvadis/<chr>.bcf
-#         grch38 results/04-expression-individuals-genotypes-grch38/expression/<chr>.bcf
+# Inputs: t2t    results/01-genotypes/chm13v2.0/expression/<chr>.bcf
+#         grch38 results/01-genotypes/grch38/expression/<chr>.bcf
 # Output: results/05-eqtl/<cohort>/genotypes/.  The grch38 genotypes serve both grch38 and grch38-ffx.
 set -euo pipefail
 COHORT=${1:?cohort}; GENO=${2:?t2t|grch38}
 CHROMS=${3:-$(printf 'chr%s,' {1..22} X | sed 's/,$//')}
 ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
 case $GENO in
-  t2t)    SRC=$ROOT/results/01b-expression-individuals-genotypes-chm13/geuvadis; IDCOL=t2t_id ;;
-  grch38) SRC=$ROOT/results/04-expression-individuals-genotypes-grch38/expression; IDCOL=grch38_id ;;
+  t2t)    SRC=$ROOT/results/01-genotypes/chm13v2.0/expression; IDCOL=t2t_id ;;
+  grch38) SRC=$ROOT/results/01-genotypes/grch38/expression; IDCOL=grch38_id ;;
   *) echo "geno must be t2t or grch38" >&2; exit 1 ;;
 esac
 OUT=$ROOT/results/05-eqtl/$COHORT/genotypes

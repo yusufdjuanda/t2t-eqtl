@@ -4,12 +4,12 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=4G
 #SBATCH --time=2-00:00:00
-#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/04-genotypes-grch38/%x_%j.out
-#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/04-genotypes-grch38/%x_%j.err
+#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/01-genotypes/grch38/%x_%j.out
+#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/01-genotypes/grch38/%x_%j.err
 # Step 4: download the phased 1000 Genomes GRCh38 panel (NYGC high coverage, 3,202 samples; Byrska-Bishop et al.
 # 2022): SNVs, indels and SVs, chr1-22 and chrX (v2), with tabix indexes.
 #
-#   sbatch scripts/04-genotypes-grch38/fetch-1kgp-grch38-panel.sbatch
+#   sbatch scripts/01-genotypes/grch38/fetch-panel.sbatch
 #
 # Source: http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/
 #         20220422_3202_phased_SNV_INDEL_SV/

@@ -6,7 +6,7 @@ Inputs (data/metadata/geuvadis/):
   ena-PRJEB3366-fastq-md5-2026-10-17.tsv  ENA run report: run, sample alias, FASTQ URLs and md5s, read pairs
   E-GEUV-1.sdrf.txt                       Geuvadis sample sheet (BioStudies E-GEUV-1): sex, ancestry, lab per run
 The five runs were chosen on 2026-10-17 from Geuvadis individuals that (a) have one run only, (b) are in
-config/samples/geuvadis-in-1kgp-chm13.txt, and (c) are near the median depth (29.3 M pairs): two Yoruba, one each
+config/samples/expression-individuals.tsv (Geuvadis, included), and (c) are near the median depth (29.3 M pairs): two Yoruba, one each
 Utah (CEU), British and Finnish; three male, two female; four from lab 1. The run IDs are listed here so the sheet
 is reproducible; this script only joins their metadata.
 """

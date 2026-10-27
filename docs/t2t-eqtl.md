@@ -4,15 +4,18 @@
 
 This is the project's only documentation file: aim, plan, rules, step log, step details, history and sources. Inputs that have been checked are labelled as observations; everything else is a proposal.
 
-**Status (2026-10-17):**
-- Steps 1 (genotypes), 2 (Geuvadis pilot) and 2b (MAGE pilot) are done. The user decided **go**, with MAGE as the discovery cohort and Geuvadis as replication.
-- Step 3 pipeline is written and in a 2-run test (13A). Step 4 (GRCh38 genotypes) is downloading.
+**Status (2026-10-27):**
+- Steps 1–2b done; the user decided **go**, with MAGE (731 individuals) as discovery and Geuvadis (451) as replication.
+- MAGE: expression on three references (T2T, GRCh38, FixItFelix-patched GRCh38), cis-eQTLs (chr1–22) and the comparison are done (13B.3). About 15,000 eGenes per reference. Positive control reproduced (8 of 9 patch-changed genes, all in FixItFelix regions). **Robust H0 set: 57 genes changed by T2T vs patched GRCh38, none in FixItFelix regions**, mostly SD paralog pairs where reads move between copies; 13 reversed eQTLs; about 15 well-genotyped H1 examples.
+- Geuvadis: expression running (642 of 652 runs on 2026-10-27).
+- Next: Geuvadis replication, ctyper copy number as a covariate, chrX, allele-specific expression at the reversal loci (15).
+- How the scripts fit together: 11.4.
 
 **Framing changed on 2026-10-17** after a literature search (2.1, 2.2):
 - FixItFelix (Behera et al. 2023) already showed artefactual GRCh38 eQTLs at the chr21 false duplication, in Geuvadis.
 - This study's main claim is therefore what a *complete* reference changes **beyond** those known, patched errors (H0, section 3). The chr21 result is a replication.
 
-Contents: 1 Aim · 2 Background and gap · 3 Hypotheses · 4 Data and sources (4.2 where every file comes from, 4.3 download commands) · 5 Design · 6 Extensions · 7 Go/no-go points · 8 Risks and controls · 9 Compute and storage · 10 Outputs and venue · 11 Execution rules · 12 Step log · 13 Step 2: RNA-seq pilot · 14 History · 15 Open items · 16 Rule changes · 17 Sources
+Contents: 1 Aim · 2 Background and gap · 3 Hypotheses · 4 Data and sources (4.2 where every file comes from, 4.3 download commands) · 5 Design · 6 Extensions · 7 Go/no-go points · 8 Risks and controls · 9 Compute and storage · 10 Outputs and venue · 11 Execution rules (11.4 how the code fits together) · 12 Step log · 13 Step 2: RNA-seq pilot · 13A Steps 3–4: expression and genotypes · 13B Steps 5–6: eQTLs and comparison · 14 History · 15 Open items · 16 Rule changes · 17 Sources
 
 ---
 
@@ -150,15 +153,15 @@ Every input the project uses, with its origin, where it is on disk, how it was o
 | ENA run report with FASTQ URLs and md5s | ENA portal API (fields `fastq_ftp,fastq_md5,fastq_bytes,read_count,nominal_length`) | as above | 2026-10-17 | `data/metadata/geuvadis/ena-PRJEB3366-fastq-md5-2026-10-17.tsv` | `curl` | — |
 | Geuvadis sample sheet (sex, ancestry, sequencing lab per run) | Geuvadis via EBI BioStudies / ArrayExpress | E-GEUV-1, `https://www.ebi.ac.uk/biostudies/files/E-GEUV-1/E-GEUV-1.sdrf.txt` | 2026-10-17 | `data/metadata/geuvadis/E-GEUV-1.sdrf.txt` | `curl` | — |
 | MAGE run report (run, individual, population, sex, platform, read and byte counts) | ENA portal API | `https://www.ebi.ac.uk/ena/portal/api/filereport?accession=PRJNA851328&result=read_run` | 2026-10-17 | `data/metadata/mage/ena-PRJNA851328-2026-10-17.tsv` | `curl` | 779 runs, 731 individuals, 26 populations, NovaSeq 6000, 2 × 150 bp, median 28.4 M pairs, 2.51 TB; all 731 in the T2T panel; 93 also in Geuvadis |
-| Geuvadis individuals with T2T genotypes (451) and without (13) | Derived: ENA run report ∩ panel sample names | — | 2026-10-13 | `config/samples/geuvadis-in-1kgp-chm13.txt`, `geuvadis-not-in-1kgp-chm13.txt` | by hand on 13 Oct; `scripts/01-genotypes/make-sample-lists.sh` reproduces them | reproduced exactly 2026-10-17 |
+| Expression individuals and whether they have T2T genotypes (MAGE 731 of 731; Geuvadis 451 of 464; 1,089 included) | Derived: MAGE and Geuvadis ENA run reports (sample_alias) and the panel's sample names | — | 2026-10-13 (Geuvadis lists, by hand); 2026-10-27 (one table, both cohorts) | `config/samples/expression-individuals.tsv` (sample, mage, geuvadis, t2t_panel, included) | `scripts/01-genotypes/make-sample-lists.sh` | identical to the earlier lists (451 / 13 / 1,089), checked 2026-10-27 |
 | Pilot sample sheet (5 runs) | Derived: ENA report + E-GEUV-1; selection rule in 13.1 | — | 2026-10-17 | `config/samples/pilot-5.tsv` | `scripts/02-rnaseq-pilot/make-pilot-sheet.py` | reproduced exactly |
 
 **Genotypes**
 
 | Resource | Origin | Accession / URL | Retrieved | Local path | Obtained by | Checked by |
 |---|---|---|---|---|---|---|
-| Phased 1000 Genomes genotypes on T2T-CHM13v2.0 (3,202 individuals) | Lalli et al., SHAPEIT5 v1.1 (released 2024-06-19), phasing the CHM13 calls of Rhie et al. 2023 / Aganezov et al. 2022 | Zenodo doi:10.5281/zenodo.7612953; `s3://human-pangenomics/T2T/CHM13/assemblies/variants/1000_Genomes_Project/chm13v2.0/Phased_SHAPEIT5_v1.1/` (file `1KGP.CHM13v2.0.whole_genome.recalibrated.snp_indel.pass.phased.native_maps.3202.bcf.gz`) | 2026-10-13 | `data/external/1kgp-chm13v2.0-phased-shapeit5-v1.1/` (with the authors' `README.txt`) | `scripts/01-genotypes/fetch-1kgp-chm13-panel.sh` | file sizes equal S3 (no md5 published) |
-| Geuvadis + NA12878 subset of the panel | Derived | — | 2026-10-13 | `results/01-geuvadis-genotypes-chm13/` | `scripts/01-genotypes/subset-genotypes.sbatch` (job 356292) | — |
+| Phased 1000 Genomes genotypes on T2T-CHM13v2.0 (3,202 individuals) | Lalli et al., SHAPEIT5 v1.1 (released 2024-06-19), phasing the CHM13 calls of Rhie et al. 2023 / Aganezov et al. 2022 | Zenodo doi:10.5281/zenodo.7612953; `s3://human-pangenomics/T2T/CHM13/assemblies/variants/1000_Genomes_Project/chm13v2.0/Phased_SHAPEIT5_v1.1/` (file `1KGP.CHM13v2.0.whole_genome.recalibrated.snp_indel.pass.phased.native_maps.3202.bcf.gz`) | 2026-10-13 | `data/external/1kgp-chm13v2.0-phased-shapeit5-v1.1/` (with the authors' `README.txt`) | `scripts/01-genotypes/chm13v2.0/fetch-panel.sh` | file sizes equal S3 (no md5 published) |
+| Expression individuals (MAGE + Geuvadis, 1,089) + NA12878 subset of the panel | Derived | — | 2026-10-13 (451 Geuvadis, job 356292); 2026-10-17 (1,089, job 360598) | `results/01-genotypes/chm13v2.0/` (`expression/`, `na12878/`, `summary.tsv`, `counts-by-chrom.tsv`) | `scripts/01-genotypes/chm13v2.0/subset-genotypes.sbatch` | — |
 
 **Reference genomes and annotation**
 
@@ -199,7 +202,7 @@ Not used: t2t-atlas also has `chm13v2.0-maskedY` (the T2T consortium analysis se
 
 | Resource | Origin | URL | Local path | Obtained by | Checked by |
 |---|---|---|---|---|---|
-| GRCh38 phased 1000 Genomes panel (3,202 samples; SNV, indel, SV; chr1–22, chrX v2) | NYGC; Byrska-Bishop et al. 2022, *Cell* | `http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/` | `data/external/1kgp-grch38-nygc-phased-20220422/` | `scripts/04-genotypes-grch38/fetch-1kgp-grch38-panel.sbatch` | md5 from the server's `20220804_manifest.txt` |
+| GRCh38 phased 1000 Genomes panel (3,202 samples; SNV, indel, SV; chr1–22, chrX v2) | NYGC; Byrska-Bishop et al. 2022, *Cell* | `http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/` | `data/external/1kgp-grch38-nygc-phased-20220422/` | `scripts/01-genotypes/grch38/fetch-panel.sbatch` | md5 from the server's `20220804_manifest.txt` |
 | MAGE RNA-seq reads (779 runs, 2 × 150 bp, unstranded) | Taylor et al. 2024, *Nature* | NCBI SRA PRJNA851328 | `work/03-expression/sra/mage/` (transient) | `scripts/03-expression/fetch-sra-batch.sbatch` | `vdb-validate` + read pairs equal to ENA |
 
 **Planned, not yet obtained:** GWAS summary statistics, long-read GM12878 / HG001 data, ctyper copy numbers (see 4.1).
@@ -212,7 +215,7 @@ Exact commands, grouped by reference. All downloads run on Karakoram. HTTPS to A
 
 | File | How | Command (essentials) |
 |---|---|---|
-| Phased 1KGP genotypes on T2T (13.0 GB BCF + index + README) | `scripts/01-genotypes/fetch-1kgp-chm13-panel.sh` | `curl -sSf -C - --connect-timeout 20 --retry 50 --retry-delay 1 --retry-all-errors -o <file> https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/variants/1000_Genomes_Project/chm13v2.0/Phased_SHAPEIT5_v1.1/<file>`, looped up to 2,000 times; size checked against S3 |
+| Phased 1KGP genotypes on T2T (13.0 GB BCF + index + README) | `scripts/01-genotypes/chm13v2.0/fetch-panel.sh` | `curl -sSf -C - --connect-timeout 20 --retry 50 --retry-delay 1 --retry-all-errors -o <file> https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/variants/1000_Genomes_Project/chm13v2.0/Phased_SHAPEIT5_v1.1/<file>`, looped up to 2,000 times; size checked against S3 |
 | T2T genome FASTA and RefSeq GTF (GCF_009914755.1, RS_2025_08) | Not downloaded by this project: the cluster admins' bundle `/storage/datasets/ref_genomes/t2t_chm13v2` (their `build_t2t_full_reference_bundle.sh` uses `wget -c` from `https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/009/914/755/GCF_009914755.1_T2T-CHM13v2.0`); registered in t2t-atlas by `scripts/01-references/prepare-references.sbatch` | — |
 | T2T SD, CenSat, RepeatMasker tracks | t2t-atlas (2026-10-06/07) | `curl` from `https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/annotation/<file>` |
 | `chm13v2-unique_to_hg38.bed` | by hand, 2026-10-17 | `curl -sSf -C - --connect-timeout 20 --retry 20 --retry-delay 1 --retry-all-errors -o data/external/t2t-consortium/chm13v2-unique_to_hg38.bed https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/chain/v1_nflo/chm13v2-unique_to_hg38.bed`, looped |
@@ -224,7 +227,7 @@ Exact commands, grouped by reference. All downloads run on Karakoram. HTTPS to A
 |---|---|---|
 | GRCh38 no-alt analysis set FASTA (GCA_000001405.15) + NCBI BWA index | t2t-atlas `scripts/01-references/prepare-noalt-reference.sbatch` (2026-10-04/05) | `curl -sSfL --retry 5 -C - -o <file> https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/<file>`; md5 against the directory's `md5checksums.txt` |
 | GRCh38 RefSeq GTF (GCF_000001405.40, RS_2025_08) | admin bundle `/storage/datasets/ref_genomes/grch38` (`wget -c` from `https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.40_GRCh38.p14`), renamed to UCSC names in t2t-atlas with the bundle's `hg38.chromAlias.txt` | — |
-| Phased 1KGP genotypes on GRCh38 (NYGC; chr1–22, chrX v2, `.tbi`, manifest, README, change log) | `scripts/04-genotypes-grch38/fetch-1kgp-grch38-panel.sbatch` (2026-10-17) | `curl -sSf -C - --retry 5 --retry-all-errors --retry-delay 20 -o <file> http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/<file>` (plain HTTP; HTTPS and the AWS mirror reset), 4 in parallel; each file's md5 checked against `20220804_manifest.txt` |
+| Phased 1KGP genotypes on GRCh38 (NYGC; chr1–22, chrX v2, `.tbi`, manifest, README, change log) | `scripts/01-genotypes/grch38/fetch-panel.sbatch` (2026-10-17) | `curl -sSf -C - --retry 5 --retry-all-errors --retry-delay 20 -o <file> http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/<file>` (plain HTTP; HTTPS and the AWS mirror reset), 4 in parallel; each file's md5 checked against `20220804_manifest.txt` |
 | `hg38ToHs1.over.chain.gz` | t2t-atlas (2026-10-04) | `curl` from `https://hgdownload.soe.ucsc.edu/goldenPath/hg38/liftOver/` |
 
 **Patched GRCh38 (FixItFelix, third reference)**
@@ -257,16 +260,18 @@ Not obtained: the 1000 Genomes population table (`https://ftp.1000genomes.ebi.ac
 
 ### 4.4 Step 1 genotype counts
 
-**Step 1 observations** (`results/01-geuvadis-genotypes-chm13/summary.tsv`, 451 Geuvadis samples, multiallelic sites split, MAF recomputed in this subset):
+**Step 1 observations** (`results/01-genotypes/chm13v2.0/summary.tsv`, the 1,089 expression individuals (MAGE + Geuvadis), multiallelic sites split, MAF recomputed in this set):
 
 | Variant class | MAF ≥ 0.05 | 0.01–0.05 | < 0.01 |
 |---|---:|---:|---:|
-| Sequence syntenic with GRCh38 | 7.39 M | 5.56 M | 22.7 M |
-| T2T-only sequence (no `SYNTENIC` flag) | 17.5 k (9.3 k SNPs, 8.2 k indels) | 21.3 k | 80.7 k |
+| Sequence syntenic with GRCh38 | 7.76 M | 6.15 M | 49.3 M |
+| T2T-only sequence (no `SYNTENIC` flag) | 18.2 k (9.5 k SNPs, 8.7 k indels) | 25.5 k | 157 k |
 
-NA12878: 2.33 M heterozygous sites in syntenic sequence, 5.9 k in T2T-only sequence. T2T-only common variants cluster on chr9 and chr15.
+NA12878: 2.33 M heterozygous sites in syntenic sequence, 5.9 k in T2T-only sequence. T2T-only common variants cluster on chr9 (4.0 k) and chr15 (3.3 k).
 
-**Interpretation.** Testable variants in new sequence are about 0.24% of the total, because most new sequence is satellite and short-read calls there are sparse. H1 can contribute examples but not the main result. The study's weight rests on H2–H4, which act on all 7.4 M shared variants as well. The share of rare variants among T2T-only calls is high, which suggests some calling error in difficult sequence; restrict association testing to common variants.
+**Interpretation.** Common variants (MAF ≥ 0.05) in new sequence are about 0.23% of the total, because most new sequence is satellite and short-read calls there are sparse. H1 can contribute examples but not the main result. The study's weight rests on H2–H4, which act on all 7.8 M shared variants as well. The share of rare variants among T2T-only calls is high, which suggests some calling error in difficult sequence; restrict association testing to common variants.
+
+(The first run, 2026-10-13, used the 451 Geuvadis individuals only and gave the same picture: 17.5 k T2T-only vs 7.39 M syntenic common variants, 0.24%. Its files were retired on 2026-10-27, section 16.)
 
 ## 5. Design
 
@@ -369,7 +374,7 @@ Code and documents in the home directory, bulk data on project storage, temporar
 /storage/home/yusuf.maulana/research/t2t-eqtl/     project root (small files only)
 ├── docs/t2t-eqtl.md   this file (all documentation)
 ├── config/            sample lists (samples/), pipeline samplesheets (samplesheets/), chromosome-name maps
-├── scripts/           one numbered folder per step (01-genotypes/, 02-rnaseq-pilot/, 03-expression/ incl. nextflow/, 04-genotypes-grch38/)
+├── scripts/           one numbered folder per step (01-genotypes/ … 07-presentation/; see 11.4)
 ├── pixi.toml, pixi.lock, .pixi/   environment (python 3.11, pandas, gffread, liftOver, plink2, pytorch-cpu, R qvalue; see 13B.2)
 ├── envs/vendor/       tensorQTL 1.0.10 and qtl 0.1.10 from PyPI wheels (on PYTHONPATH via pixi.toml)
 ├── envs/              container records
@@ -381,7 +386,7 @@ Code and documents in the home directory, bulk data on project storage, temporar
 
 ```
 config/
-├── samples/geuvadis-in-1kgp-chm13.txt, geuvadis-not-in-1kgp-chm13.txt   step 1 (451 / 13 samples)
+├── samples/expression-individuals.tsv   step 1: every MAGE/Geuvadis individual, cohort(s), in T2T panel, included (1,089)
 ├── samples/pilot-5.tsv            step 2: run, sample, ancestry, sex, lab, read pairs, ENA URLs and md5s
 └── chrom-names-chm13v2.0.tsv      UCSC (chr1) <-> RefSeq (NC_060925.1) names, plus chrM, chrEBV
 data/
@@ -397,7 +402,8 @@ data/
 └── star-references/<chm13v2.0|grch38>/   step 2: genome.fa, annotation.gtf, star-2.7.11b/, transcripts.fa,
                                           genes.tsv, tx2gene.tsv, CHECKSUMS.md5
 results/
-├── 01-geuvadis-genotypes-chm13/   per-chromosome BCFs (geuvadis/, na12878/), counts, summary.tsv
+├── 01-genotypes/<chm13v2.0|grch38>/   genotypes of the 1,089 expression individuals on each reference: per-chromosome
+│                                   BCFs (expression/, na12878/), counts-by-chrom.tsv, summary.tsv
 └── 02-rnaseq-pilot/<ref>/<run>/   STAR logs and gene counts, salmon/, idxstats; comparison/
 work/02-rnaseq-pilot/              fastq/<run>/, bam/<ref>/<run>.bam
 ```
@@ -412,25 +418,98 @@ work/02-rnaseq-pilot/              fastq/<run>/, bam/<ref>/<run>.bam
 
 - **The comparison is controlled.** Both references are processed from the same raw reads with the same pipeline, tool versions and gene-model definitions. Any intended difference is written down in the step log.
 - **Liftover is used only to pair results** computed independently on each reference, never to create input data.
-- **Downloads from S3 and the 1000 Genomes FTP must retry and resume** (HTTPS resets on most TLS handshakes from Karakoram; plain HTTP is refused by the bucket). Use `curl -C - --retry … --retry-all-errors` as in `scripts/01-genotypes/fetch-1kgp-chm13-panel.sh`. ENA (`ftp.sra.ebi.ac.uk` over HTTPS) and BioStudies work normally.
+- **Downloads from S3 and the 1000 Genomes FTP must retry and resume** (HTTPS resets on most TLS handshakes from Karakoram; plain HTTP is refused by the bucket). Use `curl -C - --retry … --retry-all-errors` as in `scripts/01-genotypes/chm13v2.0/fetch-panel.sh`. ENA (`ftp.sra.ebi.ac.uk` over HTTPS) and BioStudies work normally.
 - **Geuvadis FASTQs are never all on disk at once:** per sample, download → verify (NCBI SRA: `vdb-validate` plus read-pair count equal to ENA's; ENA: md5) → align to both references → quantify → verify outputs → delete FASTQ. Record each deletion.
 - Every job sets `TMPDIR` under `/scratch/$USER/t2t-eqtl/tmp/` (`/tmp` is the node's small root disk and was filled on 2026-10-13) and is appended to `data/metadata/resource-usage.tsv`.
 - Python scripts run with `pixi run --manifest-path <root>/pixi.toml python <script>`; add packages only with `pixi add`.
+
+### 11.4 How the code fits together (written 2026-10-27)
+
+A walk through the scripts in run order: what each step answers, what it reads and writes, and why it is built the way it is. Details and results are in sections 13–13B.
+
+**The idea behind every step: change only the reference.** Same individuals, raw reads, tools and annotation release on every reference. Much of the code exists to remove differences that are *not* the reference: chrM/chrEBV/PAR fixes, genes matched by GeneID, shared genotype PCs, matched variants.
+
+**Step 1, genotypes on both references (`scripts/01-genotypes/`; before 2026-10-27 the GRCh38 half was a separate step 4).** One sample list, then one subfolder per reference with the same two scripts, so both genotype sets are made the same way.
+- `make-sample-lists.sh` (login node, seconds): MAGE and Geuvadis individuals (ENA run reports) checked against the T2T panel's sample names → `config/samples/expression-individuals.tsv`, one row per individual with its cohort(s), whether it is in the panel, and `included` (1,089 = 731 MAGE + 451 Geuvadis − 93 in both; 13 Geuvadis individuals lack T2T genotypes). Read by `make-cohort-sheets.py` and both subset scripts.
+- `chm13v2.0/fetch-panel.sh` (login node): phased 1KGP panel on CHM13 (3,202 individuals), `curl -C - --retry` in a loop, because S3 resets most TLS handshakes from Karakoram; size checked against S3.
+- `grch38/fetch-panel.sbatch`: the NYGC phased GRCh38 panel, per chromosome, md5 against the manifest.
+- `<ref>/subset-genotypes.sbatch`: per chromosome, keep the `included` individuals, split multiallelic sites (eQTL tools test one ALT per row), recompute MAF in these individuals, drop monomorphic sites; also NA12878 (for allele-specific binding) and variant counts. The T2T script counts by `SYNTENIC` flag (absent = T2T-only sequence, the H1 candidates); the GRCh38 script also drops SVs (`-v snps,indels`), which the T2T panel lacks. Output: `results/01-genotypes/<ref>/expression/<chr>.bcf`. Both GRCh38 references use the `grch38` set.
+
+**Step 2, pilot (`scripts/02-rnaseq-pilot/`; go/no-go 1).** Does anything change, and do ordinary genes stay the same?
+- `make-pilot-sheet.py`, `make-mage-pilot-sheet.py` → `config/samples/*pilot-5.tsv`.
+- `prepare-star-references.sbatch` → `data/star-references/<ref>/` (genome, GTF, `genes.tsv` with NCBI GeneID, `tx2gene.tsv`, `transcripts.fa`, STAR index). Makes the references comparable first (13.2): chrM and chrEBV added to T2T, T2T chrY PARs masked as on GRCh38.
+- `fetch-sra.sbatch`: `prefetch` → `vdb-validate` → `fasterq-dump`; read pairs must equal ENA's count.
+- `align-quantify.sbatch`: STAR GeneCounts (unique reads only) and salmon (ambiguous reads shared by EM). When both methods agree, the reference moved the reads; when only STAR changes, it is usually annotation ambiguity. This became the step-6 rule.
+- `compare-expression.py`: join by GeneID → `results/02-rnaseq-pilot/comparison/`.
+
+**Step 3, expression for whole cohorts (`scripts/03-expression/`).** A cohort is ~2.5 TB of reads on a shared scratch, so reads are never all on disk: download a batch, process, delete.
+- Once: `make-cohort-sheets.py` → `config/samplesheets/<cohort>.csv` (one row per run, batches of 60); `prepare-ffx-reference.sbatch` (third reference, md5 and contig checks); `build-star-index.sbatch` (index per read length, oh149 MAGE, oh75 Geuvadis); `make-region-beds.py` → `keep-regions.bed` (candidate loci and MHC whose alignments are kept; genome BAMs are not).
+- `submit-cohort.sh <cohort>` chains, per batch, `fetch-sra-batch.sbatch` (download and validate, waits while scratch < 400 GB free, 30-min limit per `prefetch` attempt) and `run-batch.sbatch` (Nextflow head, then deletes the `.sra` of completed runs). fetch_k waits for run_{k-2}, so at most about two batches of `.sra` exist; all dependencies are `afterany`.
+- `nextflow/modules/local/quantify_run/main.nf`, one task per run: `fasterq-dump` → read-pair check → for each reference STAR → salmon → idxstats → `regions.bam` → delete the genome BAM → `complete.txt` last. Both parts skip runs that have `complete.txt`, so rerunning a batch is always safe (that is the resume mechanism).
+- `merge-expression.py --cohort <c>` → `results/03-expression/<c>/matrices/<ref>/{star-counts,salmon-counts,salmon-tpm}.tsv.gz` (genes × individuals; runs summed).
+
+**Step 6 preparation, needed by step 5 (`scripts/06-compare/`).**
+- `match-variants.sbatch` + `match-variants.py`: pair T2T and GRCh38 variants (lift each T2T variant, match position and alleles, allow swapped alleles, pair nearby indels, require MAF agreement). Liftover is used only here, only to pair independently called variants. The GRCh38 panel has ~1.2 M common SNPs the T2T panel lacks, mostly removed by the T2T panel's filters, so the main comparison uses matched variants only (13B.1). Output: `results/06-compare/variant-matching/<chr>.tsv.gz`.
+- `make-gene-classes.py` → `gene-classes.tsv`: region class per GeneID (`ffx_patched` > `t2t_new_sequence` > `sd` (≥ 98% SDs) > `other`) and MHC/PAR/chrM/rRNA flags. This label tests H0.
+- `compare-annotation-overlaps.sh` → `annotation-overlaps.tsv`: genes whose exon-overlap partners differ between references (STAR-only artefacts such as HCP5).
+
+**Step 5, eQTL mapping (`scripts/05-eqtl/`).** Per cohort: genotypes once, then per reference and method (star | salmon):
+- `prepare-genotypes.sbatch <cohort> <t2t|grch38>` → pgen sets `.all` and `.matched`, IDs `chr:pos:ref:alt` (the variant-matching IDs).
+- `prepare-phenotypes.py` → `phenotypes.bed.gz`: GTEx recipe (expressed filter, TMM CPM, inverse-normal, TSS); T2T `NC_…` names converted to `chrN`.
+- `make-covariates.py`: 5 genotype PCs computed **once** from matched T2T SNPs and shared by all references (ancestry correction cannot differ); sex; expression PCs per reference. `prepare-phenotypes-covariates.sbatch` runs both.
+- `run-tensorqtl.py` / `.sbatch`: per chromosome, `map_cis` (permutations: is the gene an eGene?) and `map_nominal` (every pair, so step 6 can look up any variant).
+- `collect-eqtl.py`: q-values → `cis-eqtl.tsv.gz`.
+- `make-simulated-cohort.py`: the `simtest` cohort with planted eQTLs, to test the pipeline before trusting it (13B.2).
+
+**Step 6, comparison (`scripts/06-compare/`): a funnel.**
+1. `compare-eqtl.py` (via `compare-eqtl.sbatch`): eGene on A, on B; reference-specific only if the lead variant also fails on the other reference. Presence/absence misses the main artefact (PWP2 is an eGene everywhere, far too strong on GRCh38), hence step 2.
+2. `compare-effects.py`: the same variant on both references; allele coding aligned by the sign of the genotype correlation (the matching table's "swapped" label was wrong for some indels, 13B.3); z_diff, Bonferroni → changed.
+3. `combine-methods.py`: changed under STAR **and** salmon with the same reference stronger → `robust-matched/changed-<A>-vs-<B>.tsv` (the 57-gene H0 set).
+4. `read-destination.py`: which gene's per-person change mirrors it (paralog swaps, reads taken by T2T-only genes).
+5. `reversal-variant-location.py` (+ `.sbatch`): true reversals and where their variant lies.
+6. `h1-variant-qc.py` (+ `.sbatch`, on `--variants all`): are the T2T-only lead variants well genotyped?
+
+**Step 7, presentation (`scripts/07-presentation/`).** `prepare-figure-data.py`, `pipeline.dot` (Fig 1), `make-figures.R` (Figs 2–10), `build-workbook.py`, `build-deck.py`; manuscript `.docx` by pandoc from `results/07-presentation/manuscript/t2t-eqtl-manuscript.md`.
+
+**Data flow.**
+
+```
+config/samples ─► 01 chm13v2.0/subset-genotypes ─► results/01-genotypes/chm13v2.0 ─┐
+                  01 grch38/subset-genotypes    ─► results/01-genotypes/grch38    ─┼─► 06 match-variants
+config/samplesheets ─► 03 Nextflow ─► results/03-expression/<c>/<run>/   │
+                       merge-expression ─► matrices/<ref>/               │
+                                                                         ▼
+     05 prepare-genotypes + prepare-phenotypes + make-covariates ─► run-tensorqtl ─► collect-eqtl
+     06 make-gene-classes + compare-annotation-overlaps (labels) ─┐               │
+                                                                  ▼               ▼
+        compare-eqtl ─► compare-effects ─► combine-methods ─► read-destination / reversal / h1-qc
+                                                                  ▼
+                                                     07 figures, workbook, deck, manuscript
+```
+
+**Rules that recur in the code:**
+1. Remove every difference except the reference.
+2. A change counts only when STAR and salmon agree.
+3. Compare effect sizes at the same variant, not eGene counts.
+4. Keep a positive control (GRCh38 vs patched GRCh38 must reproduce FixItFelix).
+5. Check labels against raw data (read counts against ENA, md5s, allele signs against genotype correlation).
+6. Every step is safe to rerun (completion markers, skip finished work, resumable downloads).
 
 ## 12. Step log
 
 | # | Step | Status | Where |
 |---|---|---|---|
 | 0 | Set up project; move eQTL work out of `t2t-atlas` | done 2026-10-13 | this file |
-| 1 | Genotypes: download the phased 1KGP T2T-CHM13v2.0 panel; subset to Geuvadis and NA12878; count variants by class | done 2026-10-13. Panel (SHAPEIT5 v1.1, 3,202 samples, 12,949,615,208 bytes, size matches S3) downloaded with `fetch-1kgp-chm13-panel.sh`. 451/464 Geuvadis samples in panel (`config/samples/`; lists made by hand, reproduced exactly by `make-sample-lists.sh` on 2026-10-17). Job 356292 (3.4 min, 23 CPUs): MAF ≥ 0.05: 7.39 M syntenic, 17.5 k T2T-only variants; NA12878 5.9 k het sites in T2T-only sequence | `scripts/01-genotypes/`, `data/external/1kgp-chm13v2.0-phased-shapeit5-v1.1/`, `results/01-geuvadis-genotypes-chm13/` |
+| 1 | Genotypes: download the phased 1KGP T2T-CHM13v2.0 panel; subset to Geuvadis and NA12878; count variants by class | done 2026-10-13. Panel (SHAPEIT5 v1.1, 3,202 samples, 12,949,615,208 bytes, size matches S3) downloaded with `fetch-1kgp-chm13-panel.sh` (now `scripts/01-genotypes/chm13v2.0/fetch-panel.sh`). 451/464 Geuvadis samples in panel (`config/samples/`; lists made by hand, reproduced exactly by `make-sample-lists.sh` on 2026-10-17). Job 356292 (3.4 min, 23 CPUs): MAF ≥ 0.05: 7.39 M syntenic, 17.5 k T2T-only variants; NA12878 5.9 k het sites in T2T-only sequence | `scripts/01-genotypes/`, `data/external/1kgp-chm13v2.0-phased-shapeit5-v1.1/`, `results/01-genotypes/chm13v2.0/` (renamed 2026-10-27, section 16) |
 | 2 | Five-sample RNA-seq pilot on both references (go/no-go 1) | **done 2026-10-17**; result supports go (13.7). Decisions made, metadata fetched, scripts written, pixi environment created. Submitted 09:12 UTC: references 360122 (array 0–1), FASTQ download 360123, alignment 360124. 360123/360124 cancelled 09:14 (ENA refused most of 10 parallel HTTPS streams); download cut to 2 streams with longer backoff and resubmitted as 360127. 360122_0 failed after 1 min: gffread rejects RefSeq gene records (`transcript_id ""`); fixed by passing it only transcript/exon/CDS records, tested on both GTFs; 360122_1 and alignment 360128 cancelled. Resubmitted: references 360138, alignment 360139. 360138 done: GRCh38 09:52 (20 min, 52 GB peak; 59,257 genes, 195 contigs), T2T 09:54 (29 min, 48 GB; 58,600 genes incl. 37 chrM, 26 contigs, chrY PAR1 verified all N). Indexes 37 + 30 GB. ENA download 360127 got one connection at ~0.75 MB/s (~8 h for the pilot); NCBI SRA tested at ~12 MB/s, so at the user's choice 360127/360139 were cancelled, partial ENA files deleted, and reads fetched from NCBI SRA instead (`fetch-sra.sbatch`, job 360219); alignment 360220 (after 360138 and 360219). 360219 done 10:14 (18 min, 3 runs in parallel, no S3 resets): 5 runs, 21.2 GB FASTQ, read pairs equal to ENA for all five. 360220 done 10:52 (10 tasks, 5.3–9.9 min each; peak RSS STAR 32–33 GB, salmon ≤ 12 GB). `compare-expression.py` run 10:56. 360122 waits for memory: the `t2t-atlas` ChIP-seq tasks held 1,368 of 1,470 GB | section 13; `scripts/02-rnaseq-pilot/` |
 | 2b | Five-sample MAGE pilot (+ HG00265 in both cohorts) | **done 2026-10-17**: effect replicates (13.8). Jobs 360465 (MAGE download, 22 min), 360466 (ERR188222), 360467 (MAGE alignments, 10 × 8–9 min), 360468 (ERR188222 alignments) | section 13.8 |
 | 3 | Full expression: MAGE (discovery) then Geuvadis (replication), three references | 2026-10-17: pipeline restructured (Nextflow DSL2: entry, workflow, module, profiles) with CSV samplesheets; 150 bp STAR indexes 360593; 2-run test 360624 passed; **MAGE submitted 15:25; batches 2–13 resubmitted 17:16 after a download fix (13A.5)** | section 13A; `scripts/03-expression/`, `config/samplesheets/` |
-| 3c | Full expression, Geuvadis (replication): 652 runs, 451 individuals, 2×76 bp, 11 batches, three references (oh75 indexes) | **submitted 2026-10-25 10:00 UTC** with `submit-cohort.sh geuvadis`: fetch/run pairs 365827/365828 … 365847/365848 (list in `logs/03-expression/submitted-geuvadis-20261025T100000Z.tsv`); scratch 5.2 TB free at launch. **2026-10-26: scratch full again** (t2t-atlas 4.7 TB): batches 5 and 6 lost tasks ('terminated by external system'; 63 runs without results), batch-7 download paused by the 400 GB guard at 297/652 runs. With the user's approval deleted our Nextflow work (MAGE 90 GB, Geuvadis 83 GB), the .sra of the 57 completed Geuvadis runs (152 GB) and tmp/vmtest + old-docs; scratch 125 → 449 GB free. The 63 unfinished runs keep their .sra. Download resumed 10:01 UTC; batches 5 and 6 resubmitted (user's approval) as 370298 → 370299 to process the 63 runs | section 13A |
+| 3c | Full expression, Geuvadis (replication): 652 runs, 451 individuals, 2×76 bp, 11 batches, three references (oh75 indexes) | **submitted 2026-10-25 10:00 UTC** with `submit-cohort.sh geuvadis`: fetch/run pairs 365827/365828 … 365847/365848 (list in `logs/03-expression/submitted-geuvadis-20261025T100000Z.tsv`); scratch 5.2 TB free at launch. **2026-10-26: scratch full again** (t2t-atlas 4.7 TB): batches 5 and 6 lost tasks ('terminated by external system'; 63 runs without results), batch-7 download paused by the 400 GB guard at 297/652 runs. With the user's approval deleted our Nextflow work (MAGE 90 GB, Geuvadis 83 GB), the .sra of the 57 completed Geuvadis runs (152 GB) and tmp/vmtest + old-docs; scratch 125 → 449 GB free. The 63 unfinished runs keep their .sra. Download resumed 10:01 UTC; batches 5 and 6 resubmitted (user's approval) as 370298 → 370299 to process the 63 runs; both completed (15 + 48 runs). Batches 7–10 completed 2026-10-26/27 (60 runs each, 0 failed). **Batch 11 (365848) stopped at 629/652**: ERR204978 (NA20527) failed the read-count check twice, and Nextflow then aborted the batch, 4 tasks running. ERR204978 has 41.6 M spots, but 5.27 M have one empty mate. `fasterq-dump` writes 36,380,059 complete pairs to _1/_2 plus 5.27 M orphan reads (75 bp), confirmed by inspection job 370916. Batch 11 resubmitted without it (`config/samplesheets/geuvadis-without-ERR204978.csv`, job 370911). ERR204978 is quantified from its complete pairs only, as batch 12 (`config/samplesheets/geuvadis-ERR204978-paired-only.csv`, expected 36,380,059 pairs; job 370949) **2026-10-27, ERR204978 (NA20527, batch 11):** failed the read-pair check twice (Nextflow tasks at 05:33 and 05:58 UTC). An ad hoc job (370916, `fasterq-dump --split-3`) showed 36,380,059 pairs plus 5,266,444 unpaired reads (together ENA's 41,646,503), all 75 bp; the pipeline's `--split-files` check compares pairs with ENA's total and so fails. Fix: batch 11 rerun without it (`config/samplesheets/geuvadis-without-ERR204978.csv`, job 370911), and the run processed on its pairs only as batch 12 (`config/samplesheets/geuvadis-ERR204978-paired-only.csv`, expected 36,380,059 pairs; job 370949, done 08:54, 24 min, 5.9 CPU h); the 5.3 M unpaired reads are not used. | section 13A |
 | 3b | Third reference: FixItFelix patched GRCh38 | decided 2026-10-17 (user); reference built (360623); in the MAGE run | section 13A.3 |
 | 4 | Genotypes for 1,089 individuals: T2T subset (360598) and GRCh38 NYGC panel download (360594) | started 2026-10-17 | section 13A.2 |
 | 5 | cis-eQTL mapping, MAGE (731 individuals), chr1–22, STAR counts, matched variants, three references | **done 2026-10-25**. Genotypes 365584/365585; tensorQTL arrays 365591 (T2T), 365592 (GRCh38), 365593 (patched GRCh38), 22 tasks each, 0 failed, 22:43–00:09 UTC, ~44 CPU h per reference. eGenes (FDR 0.05): 15,013 / 15,259 / 15,224 (MAGE paper: ~15,000). chrX and salmon still to run | section 13B.3; `results/05-eqtl/mage/` |
 | 6 | Comparison between references (H0), MAGE | **first pass done 2026-10-25** (`compare-eqtl.py`, 15 min, 9 GB, run on the login node): positive control reproduced (PWP2, CBS, U2AF1); see 13B.3. Same-variant effect sizes (`compare-effects.py`, via `compare-eqtl.sbatch`, job 365661): patch changes 9 genes, all in its regions; T2T vs patched GRCh38 changes 127 unflagged genes, none in patched regions (56 SD). Salmon run: prep 365657 failed (`--wrap` runs `sh`, no pipefail), resubmitted as `prepare-phenotypes-covariates.sbatch` 365662, tensorQTL 365663–365665 (0 failed), comparison 365789. **Read destination done (job 366433; 33/57 with a clear partner). All-variants tensorQTL 366424–366426 done 2026-10-25 19:22 (H1: 59 genes led by T2T-only variants, 9 found only with them; job 366638); H1 lead-variant QC job 370504 on 2026-10-26: 22 solid / 25 borderline / 12 doubtful, 15 solid genes where the T2T-only variant carries signal). Robust set (STAR and salmon agree): 57 unflagged genes changed by T2T vs patched GRCh38, none in patched regions; patch control 8/9** (69 before the allele-sign fix, reruns 366132/366133). 2026-10-26: lncRNA breakdown (9 of 57; ad hoc) and reversed eQTLs: 13 true reversals, lead variant located with `reversal-variant-location.sbatch` (370515 failed, `--wrap` runs sh; 370516, 14 s) | section 13B.3; `results/06-compare/eqtl-comparison/mage/star-matched/` |
+| 5–6g | eQTL mapping and comparison, Geuvadis (replication, 451 individuals), chr1–22, STAR and salmon, matched variants | **submitted 2026-10-27 09:45 UTC** after all 652 runs completed (09:24), with the new `scripts/05-eqtl/submit-eqtl-cohort.sh geuvadis`. It chains `merge-expression.sbatch` 371311 → `prepare-genotypes.sbatch` t2t/grch38 371312/371313 → phenotypes and covariates star 371314, then salmon 371322 (serial, so the genotype PCs are computed once) → tensorQTL arrays %2: star 371315/371317/371319, salmon 371323/371325/371327 → `collect-eqtl.sbatch` → `compare-eqtl.sbatch` 371321 (star), 371329 (salmon) → combine-methods 371330. All dependencies are afterok. Job list: `logs/05-eqtl/submitted-geuvadis-*.tsv` | section 13B.3 |
 | 7 | Presentation materials (oral-talk overview) | **done 2026-10-25**: `scripts/07-presentation/` — `prepare-figure-data.py` (job 366441, 1 min, 9 GB), `pipeline.dot` (Graphviz, Fig 1), `make-figures.R` (ggplot2, Figs 2–10), `build-workbook.py` → `results/07-presentation/t2t-eqtl-project-overview.xlsx` (talk outline, data sources, samples, pipeline, one sheet per figure, key results, 57 genes, glossary, status). pixi: added graphviz, r-ggrepel, r-patchwork, r-data.table, r-scales. LibreOffice is not on the cluster, so formulas are not pre-calculated (set to recalculate on open; logic checked in Python). Talk deck: `build-deck.py` (python-pptx; node is not on the cluster) → `results/07-presentation/t2t-eqtl-talk.pptx`, 18 slides with speaker notes; pixi: added python-pptx, defusedxml. Journal-style write-up (title, abstract, methods with datasets, results with Figs 1-10, discussion, conclusion, next steps, references) as a Claude Doc: https://claude.ai/artifact/SKsKT2bh58uE62Sz41gVBb (references written from memory, DOIs to verify; not maintained after 2026-10-26, the Word file below is the current version). Word version: `results/07-presentation/manuscript/t2t-eqtl-manuscript.docx` (pandoc from `t2t-eqtl-manuscript.md`, 10 figures embedded; pixi: added pandoc) | `results/07-presentation/` |
 
 ## 13. Step 2: five-sample RNA-seq pilot (go/no-go 1)
@@ -442,7 +521,7 @@ work/02-rnaseq-pilot/              fastq/<run>/, bam/<ref>/<run>.bam
 Summary for the pilot; the full list of every resource, with URLs, dates and checks, is in section 4.2.
 
 - **Expression (RNA-seq reads):** the Geuvadis project (Lappalainen et al. 2013, *Nature*): lymphoblastoid cell lines of 1000 Genomes individuals, paired-end 2 × 76 bp, unstranded. Raw reads are archived at ENA as study **PRJEB3366** (667 runs, 464 individuals) and mirrored at NCBI SRA under the same run IDs (`ERR…`). The pilot downloaded the 5 runs from **NCBI SRA** (ENA was too slow from Karakoram, 13.3) and checked that every run has exactly ENA's read-pair count.
-- **Which individuals:** `config/samples/geuvadis-in-1kgp-chm13.txt` lists the 451 Geuvadis individuals that also appear in the T2T genotype panel. It is the overlap of (a) the individuals in ENA's run report for PRJEB3366 (`data/metadata/geuvadis/ena-PRJEB3366-2026-10-13.tsv`, 464) and (b) the sample names in the panel BCF (3,202). The 13 without T2T genotypes are in `geuvadis-not-in-1kgp-chm13.txt`. Made by hand on 2026-10-13; `scripts/01-genotypes/make-sample-lists.sh` (added 2026-10-17) reproduces both lists exactly.
+- **Which individuals:** the Geuvadis individuals (464 in ENA's run report for PRJEB3366) that also appear in the T2T genotype panel's sample names (3,202): 451; 13 have no T2T genotypes. Made by hand on 2026-10-13; since 2026-10-27 recorded, with MAGE, in `config/samples/expression-individuals.tsv` by `scripts/01-genotypes/make-sample-lists.sh` (same 451).
 - **Sample details** (sex, ancestry, sequencing lab): Geuvadis sample sheet E-GEUV-1 from EBI BioStudies (`data/metadata/geuvadis/E-GEUV-1.sdrf.txt`).
 - **Pilot sheet:** `config/samples/pilot-5.tsv`, written by `scripts/02-rnaseq-pilot/make-pilot-sheet.py` from the ENA report (URLs, md5s, read pairs) and E-GEUV-1 (sex, ancestry, lab). Selection rule in 13.1.
 - **Genotypes:** 1000 Genomes T2T-CHM13v2.0 phased panel (section 4), not used in the pilot itself.
@@ -734,12 +813,12 @@ Genome BAMs are not kept (~8 GB per sample per reference); only the region BAMs 
 
 ### 13A.4 Genotypes (steps 1b and 4)
 
-- **T2T** (`subset-genotypes.sbatch`, with a sample-list argument): the 1,089 expression individuals → `results/01b-expression-individuals-genotypes-chm13/` (job 360598, done 2026-10-17). The per-chromosome folder is still called `geuvadis/` (inherited from step 1) but holds all 1,089.
-- **GRCh38 download** (`scripts/04-genotypes-grch38/fetch-1kgp-grch38-panel.sbatch`): NYGC phased panel → `data/external/1kgp-grch38-nygc-phased-20220422/` (30 GB).
+- **T2T** (`subset-genotypes.sbatch`, now its default): the 1,089 expression individuals → `results/01-genotypes/chm13v2.0/expression/` (job 360598, done 2026-10-17; folder renamed 2026-10-27 from `01b-…/geuvadis/`, see 16).
+- **GRCh38 download** (`scripts/01-genotypes/grch38/fetch-panel.sbatch`): NYGC phased panel → `data/external/1kgp-grch38-nygc-phased-20220422/` (30 GB).
   - Job 360594 verified 44 of 46 files. chr3 and chr7 had the right size but the wrong md5: bytes corrupted in transit, which plain HTTP cannot detect but the manifest md5 caught.
   - Both files were deleted and re-downloaded (job 360849); the 44 verified files are skipped.
   - All 1,089 expression individuals and NA12878 are in the panel (3,202 samples).
-- **GRCh38 subset** (`scripts/04-genotypes-grch38/subset-genotypes-grch38.sbatch`, job 360850, after 360849) → `results/04-expression-individuals-genotypes-grch38/`.
+- **GRCh38 subset** (`scripts/01-genotypes/grch38/subset-genotypes.sbatch`, job 360850, after 360849) → `results/01-genotypes/grch38/`.
   - Same filters as the T2T subset: individuals, `norm -m-`, AC/AN/MAF recomputed, monomorphic sites dropped.
   - Plus SNVs and indels only, because the NYGC panel also has SVs and the T2T panel does not.
   - Next: match variants between references for step 6.
@@ -1027,7 +1106,7 @@ Test fixtures: `config/samplesheets/simtest.csv`, `results/03-expression/simtest
 - *Interim cohort:* a `mage420` cohort (401 individuals, 425 runs completed by 2026-10-23 12:30) was set up for an early look: links to the completed runs, its own samplesheet, `results/05-eqtl/mage420/`. Its genotype preparation failed twice:
   1. plink2 needs sex for chrX → `prepare-genotypes.sbatch` now writes `sex.txt` from the samplesheet and passes `--update-sex`;
   2. chrX pseudoautosomal variants need `--split-par` with reference-specific boundaries.
-- *Switch to the full cohort:* MAGE then finished, so the analysis moved to the full cohort; `mage420` is kept but not used further.
+- *Switch to the full cohort:* MAGE then finished, so the analysis moved to the full cohort; `mage420` was removed on 2026-10-27 (results, links and samplesheet; section 16).
 - **Full MAGE, autosomes first** (chrX to be added with the correct PAR boundaries for T2T and GRCh38):
   - phenotypes (STAR): 17,160 expressed genes on T2T, 17,580 on GRCh38, 17,573 on patched GRCh38 (731 individuals);
   - genotypes chr1–22: jobs 365584 (T2T) and 365585 (GRCh38).
@@ -1394,6 +1473,10 @@ The project was created from a Claude Code session in `~/research/t2t-atlas`.
 | 2026-10-17 | Central claim reframed as H0 ("beyond the regions FixItFelix patched"); region classes in step 6; go/no-go 2 counts changes outside the patched regions | FixItFelix (Behera et al. 2023) already published the chr21 part (2.2) |
 | 2026-10-17 | MAGE is the discovery cohort, Geuvadis the replication | MAGE pilot (13.8): larger, 26 populations, one lab, 150 bp reads, effect replicates |
 | 2026-10-17 | Reads come from NCBI SRA (`prefetch` + `fasterq-dump`), verified with `vdb-validate` and ENA's read-pair count, instead of ENA FASTQs checked by md5 | ENA gave ~0.75 MB/s from Karakoram (≈ 40 days for 2.5 TB); NCBI ~12 MB/s. Same reads; FASTQ headers differ, which does not affect alignment |
+| 2026-10-27 | One T2T genotype folder: `results/01b-expression-individuals-genotypes-chm13/geuvadis/` renamed to `results/01-expression-individuals-genotypes-chm13/expression/` (set label in `summary.tsv` and `counts/` changed from `geuvadis` to `expression`); the superseded 451-person step-1 output `results/01-geuvadis-genotypes-chm13/` retired and 4.4 rewritten with the 1,089-person counts (final version only, user request); the per-chromosome `counts/` intermediate no longer kept, here and in `results/04-expression-individuals-genotypes-grch38/` (both subset scripts now write it to TMPDIR); `subset-genotypes.sbatch` defaults to the 1,089 list; `prepare-genotypes.sbatch`, `match-variants.sbatch`, `make-simulated-cohort.py` updated | The 1,089 set (731 MAGE + 451 Geuvadis − 93 in both) contains all 451; the old names said 'Geuvadis' for data that is both cohorts, and matched neither the GRCh38 folder (`04-…/expression/`) (user request) |
+| 2026-10-27 | Interim cohort `mage420` removed (`results/05-eqtl/mage420/` 2.0 GB, `results/03-expression/mage420/` links and matrices, `config/samplesheets/mage420.csv`) | Superseded by the full MAGE cohort; nothing used it (user request) |
+| 2026-10-27 | One sample table: `make-sample-lists.sh` now checks both cohorts (MAGE and Geuvadis ENA run reports) against the T2T panel and writes `config/samples/expression-individuals.tsv` (sample, mage, geuvadis, t2t_panel, included); it replaces `geuvadis-in-1kgp-chm13.txt`, `geuvadis-not-in-1kgp-chm13.txt` and `expression-individuals-in-1kgp-chm13.txt` (the last was written by `make-cohort-sheets.py`). `make-cohort-sheets.py` and both genotype subset scripts read the table; samplesheets and the default 1,089-person list are byte-identical | MAGE had been checked against the panel only by hand, and the 1,089 list was made in step 3 but used in step 1 (user request) |
+| 2026-10-27 | Steps 1 and 4 merged into one genotype step: `scripts/01-genotypes/{make-sample-lists.sh, chm13v2.0/{fetch-panel.sh, subset-genotypes.sbatch}, grch38/{fetch-panel.sbatch, subset-genotypes.sbatch}}` (from `01-genotypes/fetch-1kgp-chm13-panel.sh`, `01-genotypes/subset-genotypes.sbatch`, `04-genotypes-grch38/fetch-1kgp-grch38-panel.sbatch`, `04-genotypes-grch38/subset-genotypes-grch38.sbatch`); results `results/01-genotypes/{chm13v2.0,grch38}/` (from `results/01-expression-individuals-genotypes-chm13/`, `results/04-expression-individuals-genotypes-grch38/`); logs `logs/01-genotypes/{chm13v2.0,grch38}/`. Files moved, nothing rerun; paths in scripts and this file updated (rows above keep the names of their time; the ledger keeps its step labels) | The two steps do the same thing on two references; mirrors the per-reference layout elsewhere (user request) |
 
 ## 17. Sources
 

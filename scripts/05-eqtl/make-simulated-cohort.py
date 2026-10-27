@@ -2,7 +2,7 @@
 
     pixi run python scripts/05-eqtl/make-simulated-cohort.py
 
-Uses real T2T genotypes (chr22, results/01b-...) of 300 MAGE individuals and 300 real chm13v2.0 genes on chr22.
+Uses real T2T genotypes (chr22, results/01-genotypes/chm13v2.0/expression/) of 300 MAGE individuals and 300 real chm13v2.0 genes on chr22.
 Expression is simulated: for 60 genes, log-expression depends on one real common variant (MAF >= 0.1, within 200 kb
 of the TSS) with effect 0.3-0.8 SD per allele; 240 genes have no genetic effect. Counts ~ negative binomial.
 Writes results/03-expression/simtest/matrices/chm13v2.0/{star-counts,salmon-counts,salmon-tpm}.tsv.gz,
@@ -17,7 +17,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
 rng = np.random.default_rng(2026)
-BCF = ROOT / "results/01b-expression-individuals-genotypes-chm13/geuvadis/chr22.bcf"
+BCF = ROOT / "results/01-genotypes/chm13v2.0/expression/chr22.bcf"
 
 sheet = pd.read_csv(ROOT / "config/samplesheets/mage.csv").drop_duplicates("sample")
 inds = sheet["sample"].sample(300, random_state=1).tolist()
