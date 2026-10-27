@@ -1457,7 +1457,7 @@ The project was created from a Claude Code session in `~/research/t2t-atlas`.
 4. Obtain GRCh38 1KGP genotypes (NYGC) for the comparison (step 4).
 5. A stricter segmental-duplication definition for the full analysis (13.5).
 6. In `t2t-atlas`: resubmit the k-mer peak-calling array (job 355980) with a cap; keep the ChIP-seq runs within 128 cores.
-7. Nothing is committed in this repository; commit only when the user asks.
+7. Commit only when the user asks. Since 2026-10-27 the repository is on GitHub (private): https://github.com/yusufdjuanda/t2t-eqtl; data, results, logs and work are symlinks there, so only code, config and docs are pushed.
 
 ## 16. Rule changes
 

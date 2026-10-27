@@ -4,3 +4,6 @@
 
 # Python bytecode
 __pycache__/
+
+# Claude Code project instructions (local only)
+CLAUDE.md
