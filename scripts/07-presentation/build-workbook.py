@@ -9,6 +9,7 @@ Text in the sheets follows docs/t2t-eqtl.md (sections 1-4, 12, 13B.3); update bo
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image
@@ -68,6 +69,12 @@ def image(ws, anchor, png, width_px):
 
 
 # ------------------------------------------------------------------------------------------------------------
+
+def reversed_again(d):
+    """Slopes again of opposite sign under STAR and salmon, none near zero (|slope| >= 0.05; TCAF2 and ELOB are one-sided)."""
+    opp = lambda m: (np.sign(d[f"{m}_slope_a"]) != np.sign(d[f"{m}_slope_b"])) & (d[f"{m}_slope_a"].abs() >= 0.05) & (d[f"{m}_slope_b"].abs() >= 0.05)
+    return opp("star") & opp("salmon")
+
 wb = Workbook()
 ws = wb.active; ws.title = "Start here"
 ws.column_dimensions["A"].width = 3; ws.column_dimensions["B"].width = 30; ws.column_dimensions["C"].width = 110
@@ -88,16 +95,20 @@ for s in ["1. An eQTL is a DNA variant whose alleles go with different expressio
           "about 20 known errors and showed that some GRCh38 eQTLs (PWP2, GATD3A) are artefacts.",
           "3. We processed the same raw reads of 731 MAGE individuals on T2T-CHM13, GRCh38 and the FixItFelix-patched GRCh38, "
           "with genotypes native to each reference, and compared the eQTL effect of the same variant on the same gene.",
-          "4. The patch changes 8 genes, all in its regions; T2T changes 57 more genes outside them (robust to the "
-          "quantification method), mostly by moving reads between paralogs, pseudogenes and genes that exist only in T2T."]:
+          "4. The patch changes 7 genes, all in its regions; T2T changes 117 more genes outside them (paired test, both "
+          "quantification methods, at least 0.1 SD), mostly by moving reads between paralogs, pseudogenes and genes that exist "
+          "only in T2T; they replicate in 358 independent Geuvadis individuals and change some disease colocalisations."]:
     r = text(ws, r, 2, s, BODY, 3)
 r += 1
 r = text(ws, r, 2, "Key numbers", H2)
 key = [("Individuals (discovery, MAGE)", 731), ("Individuals (replication, Geuvadis)", 451),
        ("References compared", "T2T-CHM13v2.0, GRCh38 no-alt, FixItFelix patched GRCh38"),
        ("eGenes per reference (FDR 5%, STAR)", "15,013 / 15,259 / 15,224"),
-       ("Genes changed by the patch (control)", 8), ("Genes changed by T2T beyond the patch (robust)", 57),
-       ("... of which with a clear read destination", 33)]
+       ("Changed genes: core (independent test) / main / extent (paired test)", "57 / 117 / 255"),
+       ("Main set replicating in 358 independent Geuvadis individuals", "100 of 110 tested (86 Bonferroni)"),
+       ("Genes colocalising with a GWAS trait on one reference only", "8 of 15 (3 confirmed by SuSiE-coloc)"),
+       ("Genes changed by the patch (control, main definition)", 7), ("Genes changed by T2T beyond the patch (main set)", 117),
+       ("... core genes with a clear read destination", "33 of 57")]
 for k, v in key:
     ws.cell(r, 2, k).font = BOLD; c = ws.cell(r, 3, v); c.font = BODY; c.alignment = Alignment(horizontal="left"); r += 1
 ws.cell(r, 2, "T2T effect relative to the patch").font = BOLD
@@ -108,63 +119,90 @@ sheets = [("Talk outline", "Slide-by-slide plan of a 15-minute oral talk, with t
           ("Samples", "All 1,431 sequencing runs (779 MAGE, 652 Geuvadis): individual, population, sex, depth, mapping rates"),
           ("Sample summary", "Individuals and runs per cohort and population (formulas over the Samples sheet)"),
           ("Pipeline", "Figure 1 (Graphviz) and the steps, tools, scripts and compute"),
-          ("Fig2 ... Fig10", "One sheet per figure (R, ggplot2) with a caption: what it shows, how to read it, the take-home"),
+          ("Fig2 ... Fig13", "One sheet per figure (R, ggplot2) with a caption: what it shows, how to read it, the take-home"),
           ("Key results", "The numbers behind the figures"),
-          ("57 genes", "The robust gene set with effect sizes and where each gene's reads go"),
+          ("Gene sets", "The 255 changed genes (extent) with tier core / main / extent, paired-test changes and Geuvadis replication"),
+          ("57 genes", "The 57 core genes with effect sizes and where each gene's reads go"),
           ("Glossary", "Terms used in the talk, in plain language"),
           ("Status & next", "What is done, running and next; known caveats")]
 r = table(ws, r, 2, ["Sheet", "What is in it"], sheets)
 
 # ------------------------------------------------------------------------------------------------------------
 ws = wb.create_sheet("Talk outline")
-ws.cell(1, 1, "Oral presentation plan (about 15 minutes + questions)").font = TITLE
+ws.cell(1, 1, "Oral presentation plan (about 18 minutes + questions)").font = TITLE
 slides = [
+ # (slide, section: title, key message, figure, minutes, notes: why it matters / link in the story)
  (1, "Title", "A complete reference genome changes the eQTL map beyond known GRCh38 fixes", "—", 0.5,
-  "Name, affiliation. One line: same raw RNA-seq reads, three references, what changes."),
- (2, "Why the reference matters", "Every step of an eQTL study (genotypes, read placement, gene models) depends on the reference genome",
-  "—", 1.0, "GRCh38 has 151 Mb of unknown sequence, false duplications (chr21) and collapsed duplications. T2T-CHM13 adds or "
-  "corrects 238 Mb (Nurk 2022). Reads from missing sequence do not vanish: they land on the most similar place that exists."),
- (3, "What is already known", "FixItFelix patched ~20 GRCh38 errors and found artefactual eQTLs (PWP2, GATD3A) in Geuvadis",
-  "—", 1.0, "Behera et al. 2023 Genome Biology. Limits: patched regions only (a few Mb), GRCh38 genotypes and gene models. "
-  "No eQTL study has been run natively on T2T (searched Oct 2026)."),
- (4, "Question", "H0: most reference-driven eQTL changes lie OUTSIDE the regions FixItFelix patched", "—", 0.5,
-  "The patched GRCh38 is our third reference: it separates what known patches fix from what a complete genome adds."),
- (5, "Data", "731 MAGE LCLs from 26 populations (discovery) and 451 Geuvadis LCLs (replication), all with 1000 Genomes genotypes",
-  "Fig2", 1.0, "MAGE: one lab, 2x150 bp, ~28 M read pairs per run. Geuvadis: several labs, 2x76 bp. 93 people are in both. "
-  "Genotypes: the phased 1KGP panel called natively on T2T, and the NYGC panel on GRCh38."),
- (6, "Design", "Same raw reads processed three times; only the reference changes", "Fig1", 1.5,
-  "SRA download with checksum and read-count checks; STAR + salmon per reference; tensorQTL with 10,000 permutations, "
-  "5 genotype PCs, sex and 60 expression PCs. Comparison on variants present on both references (matched)."),
- (7, "Mapping", "T2T halves multi-mapping reads (4.2% -> 2.1%) and places slightly more reads uniquely", "Fig3", 1.0,
-  "Grey lines join the same run on each reference. Fewer ambiguous reads is the first sign that read placement changes."),
- (8, "Fair comparison of genotypes", "12.6 M variants are matched between the T2T and GRCh38 panels; the main test uses only these",
-  "Fig4", 1.0, "LiftOver is used only to pair variants called independently on each reference. Matched pairs must agree "
-  "in allele frequency and in person-level genotypes, so any change comes from expression, not genotypes."),
- (9, "Overall", "About 15,000 eGenes on every reference: the overall map is stable", "Fig5", 0.5,
-  "Agrees with the MAGE paper (~15,000 on GRCh38). The interesting part is which genes differ."),
- (10, "Positive control", "The known chr21 artefacts reappear: PWP2, GATD3, CBS, ICOSLG, U2AF1 are inflated only on unpatched GRCh38",
-  "Fig6", 1.0, "T2T agrees with the patch. The patch changes 9 genes (8 with both quantifiers), all in its regions. "
-  "This independently reproduces FixItFelix in a larger, more diverse cohort."),
- (11, "Genome-wide comparison", "Same gene, same variant: 57 genes change between T2T and the patched GRCh38, none in FixItFelix regions",
-  "Fig7", 1.5, "Robust = changed with STAR AND salmon, same direction, no annotation/MHC/PAR flag. Effects are compared "
-  "on the same variant; the allele orientation comes from the genotypes themselves."),
- (12, "The 57 genes", "Mostly segmental duplications and gene families (CCZ1, ASAH2, PMS2, NBPF, NPIP, TBC1D3, STAG3L) plus "
-  "highly expressed genes with pseudogenes (RPL9, RPSA, UBC)", "Fig8", 1.0,
-  "About 8 times as many genes as the patch fixes. Half have opposite-sign effects at the same variant."),
- (13, "Mechanism", "One gene loses the reads its partner gains: paralog swaps, processed pseudogenes and genes that exist only in T2T",
-  "Fig9", 1.5, "Per person, CCZ1 and CCZ1B change in mirror image (r = -0.96). PDPR on GRCh38 holds part of the reads of a "
-  "gene in T2T-only sequence (r = -0.82, about 8% of its change): missing sequence creates an eQTL artefact outside every patch."),
- (14, "What it means for an eQTL", "The same people and the same variant give a different eQTL depending on the reference",
-  "Fig10", 1.0, "PWP2: the known artefact. CCZ1: the effect reverses. SMN2: much stronger on T2T. These genes are tested "
-  "in GTEx and used in colocalisation; the reference choice changes the answer."),
- (15, "Limits and next steps", "Replication in Geuvadis (running); T2T-only variants; chrX; paralog copy number (ctyper)",
-  "—", 1.0, "Salmon alone over-calls changes (transcript annotation differs between assemblies), so both quantifiers are "
-  "required. 24 of 57 genes have no single read partner yet."),
- (16, "Conclusions", "A complete reference changes eQTLs well beyond known patches, through read placement in duplicated "
-  "and newly resolved sequence", "—", 0.5, "Take-home: use T2T (or at least check SD genes) before trusting an eQTL in "
-  "a gene family. Code and results will be released."),
+  "Same raw reads from 731 people, three references. eQTL maps are how GWAS are read, and almost all are built on GRCh38."),
+ (2, "Intro: why the reference matters", "Genotypes, read placement and gene models all depend on the reference genome", "—", 0.75,
+  "GRCh38: 151 Mb unknown, false and collapsed duplications; T2T adds or corrects 238 Mb. Reads from missing sequence land "
+  "elsewhere; if the loss depends on genotype, an eQTL is created or hidden."),
+ (3, "Intro: gap and question", "No eQTL study has been run natively on T2T. Which eQTLs change, beyond the known patchable errors? (H0)",
+  "—", 0.75, "H0: most changes lie OUTSIDE the regions FixItFelix patched; if true, patching GRCh38 is not enough."),
+ (4, "Intro: has anyone done this?", "T2T used for variants, ChIP-seq, copy number, duplications, but not eQTLs; FixItFelix used T2T "
+  "only to patch ~20 known GRCh38 errors", "—", 0.75,
+  "Errors found by Wagner 2022 and Aganezov 2022; FixItFelix masked false copies, added missing copies from T2T, showed PWP2 "
+  "and GATD3A artefacts. Its patched GRCh38 becomes our third reference."),
+ (5, "Intro: the journey of the data", "1 Expression, 2 Genotypes, 3 eQTL mapping, 4 Comparison, 5 Does it matter?", "—", 0.5,
+  "Design rule: same people, reads, software, annotation and covariates; only the reference changes."),
+ (6, "Data: two cohorts", "731 MAGE LCLs, 26 populations (discovery); 451 Geuvadis LCLs (replication); 1000 Genomes genotypes on both references",
+  "Fig2", 0.5, "MAGE: one lab, 2x150 bp. Geuvadis: several labs, 2x76 bp; 93 people in both. FixItFelix used Geuvadis, so results can be checked."),
+ (7, "Design: three references", "Each run processed three times; patched vs GRCh38 checks the pipeline, T2T vs patched is the main question",
+  "method-overview", 0.75, "STAR + salmon, tensorQTL with 66 covariates, plink2, liftOver variant matching; a change must appear with both quantifiers."),
+ (8, "1 Expression: methods", "Download and check; STAR alignment to each reference; counts with STAR and salmon; same RefSeq genes on all", "—", 0.5,
+  "STAR 2.7.11b, salmon 1.11.4; runs summed per person (731). Holds everything but the reference fixed."),
+ (9, "1 Expression: mapping", "T2T halves multi-mapped reads (4.3% -> 2.1%, medians of 779 runs); the patch barely helps (4.2%)",
+  "Fig3", 0.5, "STAR counts only uniquely placed reads, so T2T can count reads GRCh38 discards. H0 in miniature."),
+ (10, "1 Expression: STAR and salmon", "Two ways of counting: a change counts only if both see it (T2T vs patched: 97 both, 114 STAR only, 49 salmon only)", "Fig16", 0.75,
+  "STAR drops ambiguous reads; salmon shares them by likelihood. They fail differently, so requiring both removes counting artefacts; conservative (some STAR-only SD genes are probably real)."),
+ (11, "1 Expression: gene level", "The patch changes 5 genes (all in its regions); T2T vs patched changes 97 of 13,563, 31% in segmental duplications",
+  "Fig14", 0.75, "T2T adds no noise (99.3% within 2-fold) and shows where to look. But averages hide who loses reads."),
+ (12, "2 Genotypes: methods", "Two 1000 Genomes panels; 1,089 people, frequency >= 1%; liftOver pairing; 5 genotype PCs", "—", 0.5,
+  "bcftools 1.23.1, plink2 2.0.0a7.8, UCSC liftOver v482. No genotype is converted between references."),
+ (13, "2 Genotypes: matched variants", "12.6 M variants paired between the T2T and GRCh38 panels; the main test uses only these",
+  "Fig4", 0.5, "Same variant in the same people on both references, so any change comes from expression, not genotype calls."),
+ (14, "3 eQTL mapping: methods", "TMM + inverse-normal expression; 66 covariates; tensorQTL within 1 Mb; 10,000 permutations, q < 0.05", "—", 0.5,
+  "tensorQTL 1.0.10. Same recipe on every reference and counting method."),
+ (15, "3 eQTL mapping: overall", "About 15,000 eGenes on every reference: the overall map is stable", "Fig5", 0.5,
+  "Pipeline sanity check (agrees with MAGE paper). Totals hide which genes change."),
+ (16, "3 eQTL mapping: expression is not eQTL", "Of 59 genes with a 2-fold expression change only 15 change their eQTL; 89 of 104 eQTL "
+  "changes come with < 2-fold expression change", "Fig15", 1.0,
+  "PKD1P4-NPIPA8: uniform loss, eQTL unchanged. CCZ1: same mean, eQTL reverses. Justifies comparing the same variant's effect."),
+ (17, "4 Comparison: methods", "Same gene, same variant; paired test; a change needs all four: real (Bonferroni, |z| > 4.6), big enough (>= 0.1 SD; typical eQTL 0.30), STAR and salmon same direction, no flag", "—", 0.75,
+  "Three pairs of references; region labels; checks: Geuvadis replication and copy number."),
+ (18, "4 Comparison: how many change", "T2T vs GRCh38 121 (6 in patched regions); the patch alone 7, all inside; T2T vs patched 117, none inside",
+  "Fig20", 1.0, "Central result (H0) with its sanity check. Robust: 76 at 0.2 SD; 100 of 110 replicate in Geuvadis."),
+ (19, "4 Comparison: top 10 changed genes", "R gt table: gene, rsID, GRCh38 position, REF/ALT, effect allele and its 1000 Genomes frequency, effects, change, paired z and P, replication",
+  "Fig23", 1.0, "Names and numbers early, so the next slides explain what the audience has seen (ASAH2, SMN2, CCZ1, PMS2CL)."),
+ (20, "4 Comparison: segmental duplications", "50% of changed genes lie in segmental duplications vs 2.6% of all genes compared",
+  "Fig21", 0.75, "Short reads cannot tell near-identical copies apart; the reference decides where they go."),
+ (21, "4 Comparison: reads move (coverage)", "RNA coverage along ASAH2 and ASAH2B, 0 vs 2 copies of the eQTL allele, on both references: GRCh38 ASAH2 0.47x / ASAH2B 1.40x; T2T ASAH2 4.5x / ASAH2B 0.87x",
+  "Fig25", 1.0, "Genome-browser view from the ASE target BAMs (347 people, unique reads). ASAH2 is the largest change; CCZ1, PMS2CL and SMN2 were weaker or had too few people with 0 copies."),
+ (22, "4 Comparison: the eQTL reverses (ASAH2)", "ASAH2 loses what ASAH2B gains per person (r = -0.91), and the ASAH2 eQTL reverses (+0.77 vs -0.53)",
+  "Fig22", 1.0, "Mechanism: genotype-dependent read placement between copies. Same in ASAH2/B, PMS2/PMS2CL, RPSA/RPSA2."),
+ (23, "5 Link to GWAS", "Colocalisation with six GWAS on each reference: 6 changed genes colocalise on one reference only",
+  "Fig24", 1.0, "IFITM3-AS1 with hypothyroidism on patched GRCh38 only; 16p11.2 SMG1P6 vs NPIPB13."),
+ (24, "Limits and next steps", "Which reference is right (allele-specific expression running); salmon alone over-calls; unmapped reads; chrX; H5", "—", 0.75,
+  "Each caveat has a check running or planned; none affects H0."),
+ (25, "Conclusions", "A complete reference changes eQTLs well beyond known patches, through read placement in duplicated and new "
+  "sequence, and this changes disease links", "—", 0.5,
+  "Take-home: check gene families on a complete reference before trusting their eQTLs. Code and results will be released."),
+ ("B1", "Backup: key numbers", "eGenes and changed genes per comparison", "—", 0, "For questions."),
+ ("B2", "Backup: one gene, two people (PWP2)", "On GRCh38 the read loss depends on genotype, so the eQTL is four times too strong", "—", 0, "For questions; slide 13 makes the same point with new genes."),
+ ("B3", "Backup: question and mechanisms", "H0 and H1-H4", "—", 0, "For questions."),
+ ("B4", "Backup: detailed pipeline", "Download, quantify, genotypes, eQTLs, compare", "Fig1", 0, "For questions."),
+ ("B5", "Backup: data sources", "Public data only; every download verified", "—", 0, "For questions."),
+ ("B6", "Backup: how the tools work", "STAR, salmon, phenotypes, tensorQTL, variant pairs, paired test", "—", 0, "For questions."),
+ ("B7", "Backup: replication in Geuvadis", "358 individuals not in MAGE: 100 of 110 replicate (86 Bonferroni); 10 of 12 reversals", "Fig12", 0, "For questions."),
+ ("B8", "Backup: copy number", "ctyper copy number as a covariate leaves 55 of 62 covered genes changed", "Fig18", 0, "For questions."),
+ ("B9", "Backup: examples", "PWP2, CCZ1 (reversed), SMN2 by genotype on two references", "Fig11", 0, "For questions."),
+ ("B10", "Backup: allele-specific expression", "Which reference is right: within-person test, running", "—", 0, "For questions."),
+ ("B11", "Backup: why a paired test", "Both effects come from the same people; the standard test is 9-15x too conservative",
+  "Fig8", 0, "Residual correlation 0.99; covariance of correlated regressions (Zellner 1962). Bootstrap 0.95x paired se; null lambda 1.03."),
+ ("B12", "Backup: how the paired test is calculated", "One gene (IFITM2): per-person expression on both references, the per-person difference by genotype, the formula and references", "Fig19", 0, "For questions; Zellner 1962, Weesie 1999, Lin & Sullivan 2009."),
+ ("B13", "Backup: ASAH2 coverage, all genotypes", "Fig 25 with heterozygotes: 57 A/A, 140 A/C, 150 C/C; heterozygotes in between", "Fig25s", 0, "For questions; 347 re-aligned people."),
 ]
-r = table(ws, 3, 1, ["Slide", "Title", "Key message (one sentence on the slide)", "Figure", "Minutes", "Speaker notes (plain language)"],
+r = table(ws, 3, 1, ["Slide", "Section: title", "Key message (one sentence on the slide)", "Figure", "Minutes", "Why it matters / link in the story"],
           slides, widths=[7, 24, 60, 9, 9, 90])
 ws.cell(r, 4, "Total").font = BOLD
 c = ws.cell(r, 5, f"=SUM(E4:E{r-2})"); c.font = BOLD
@@ -177,10 +215,10 @@ ws.cell(2, 1, "Full details and exact download commands: docs/t2t-eqtl.md sectio
 src = [
  ("RNA-seq", "MAGE RNA-seq (discovery cohort)", "LCL RNA-seq of 731 1000 Genomes individuals, 26 populations, one lab; 779 runs, 2x150 bp, unstranded, NovaSeq 6000, median 28.4 M read pairs",
   "Taylor et al. 2024, Nature (MAGE)", "NCBI SRA PRJNA851328", "run report 2026-10-17", "2.51 TB reads (transient on scratch)",
-  "scripts/03-expression/fetch-sra-batch.sbatch (prefetch)", "vdb-validate (NCBI checksums) + read pairs equal to ENA", "Expression on all three references"),
+  "scripts/04-expression/fetch-sra-batch.sbatch (prefetch)", "vdb-validate (NCBI checksums) + read pairs equal to ENA", "Expression on all three references"),
  ("RNA-seq", "Geuvadis RNA-seq (replication cohort)", "LCL RNA-seq of 462 individuals, 5 populations, 7 labs; 652 runs used (451 individuals with T2T genotypes), 2x76 bp, unstranded",
   "Lappalainen et al. 2013, Nature", "ENA PRJEB3366 (mirrored at NCBI SRA); sample sheet E-GEUV-1 (BioStudies)", "2026-10-17", "~2.5 TB reads",
-  "scripts/03-expression/fetch-sra-batch.sbatch", "vdb-validate + read pairs equal to ENA", "Replication (running since 2026-10-25)"),
+  "scripts/04-expression/fetch-sra-batch.sbatch", "vdb-validate + read pairs equal to ENA", "Replication (done 2026-10-27)"),
  ("Metadata", "Run reports and sample sheets", "Run, individual, population, sex, lab, read counts",
   "ENA portal API; EBI BioStudies", "data/metadata/{mage,geuvadis}/", "2026-10-13 / 17", "small",
   "curl (commands in doc 4.3)", "—", "config/samplesheets/{mage,geuvadis}.csv"),
@@ -192,13 +230,13 @@ src = [
   "scripts/01-genotypes/grch38/fetch-panel.sbatch", "md5 against 20220804_manifest.txt", "GRCh38 genotypes (both GRCh38 references)"),
  ("Reference", "T2T-CHM13v2.0 genome", "Complete human genome (24 chromosomes, chrY from HG002); chrY PARs masked, chrM and chrEBV added for RNA-seq",
   "Nurk et al. 2022, Science", "NCBI GCF_009914755.1", "2026-09-27 (cluster bundle)", "3.1 Gb",
-  "t2t-atlas prepare-references.sbatch; scripts/02-rnaseq-pilot/prepare-star-references.sbatch", "CHECKSUMS.md5", "Reference 1"),
+  "t2t-atlas prepare-references.sbatch; scripts/02-references/prepare-star-references.sbatch", "CHECKSUMS.md5", "Reference 1"),
  ("Reference", "GRCh38 no-alt analysis set", "Primary assembly + unplaced contigs, rCRS chrM, chrEBV, chrY PARs masked (the set ENCODE uses)",
   "Genome Reference Consortium / NCBI", "NCBI GCA_000001405.15 seqs_for_alignment_pipelines", "2026-10-04", "3.1 Gb",
   "t2t-atlas prepare-noalt-reference.sbatch", "NCBI md5checksums.txt", "Reference 2"),
  ("Reference", "FixItFelix patched GRCh38", "GRCh38 no-alt with false duplications masked and decoys for collapsed genes",
   "Behera et al. 2023, Genome Biology", "Zenodo 7532965 (GRCh38_masked_v2_decoy_gene.fasta.gz)", "2026-10-17", "873 MB",
-  "scripts/03-expression/prepare-ffx-reference.sbatch", "md5 35d00c3c48d1849adb8e02086c3a1c70", "Reference 3 (separates patch effects from completeness)"),
+  "scripts/02-references/prepare-ffx-reference.sbatch", "md5 35d00c3c48d1849adb8e02086c3a1c70", "Reference 3 (separates patch effects from completeness)"),
  ("Annotation", "NCBI RefSeq gene models RS_2025_08", "Same annotation release on both assemblies: T2T 58,563 genes, GRCh38 59,257; matched by NCBI GeneID (55,334 on both)",
   "NCBI RefSeq", "GCF_009914755.1-RS_2025_08; GCF_000001405.40-RS_2025_08", "2026-09/10", "—",
   "cluster bundle; registered in t2t-atlas", "—", "Gene counts, gene matching between references"),
@@ -216,7 +254,17 @@ src = [
   "t2t-atlas", "CHECKSUMS.md5", "Variant matching"),
  ("Prior work", "ctyper paralog-specific copy numbers for 1KGP", "3,202 samples x 84,346 pangenome-allele types; Geuvadis expression matrix",
   "Ma & Chaisson 2025, Nature Genetics", "Zenodo 10.5281/zenodo.13683015", "2026-10-23", "tar.gz",
-  "curl", "md5 equal to Zenodo", "Planned covariate (copy number)"),
+  "curl", "md5 equal to Zenodo", "Copy-number covariate (paired-test.py --copy-number)"),
+ ("GWAS", "GWAS Catalog associations", "1.2 M associations, all studies (release 'latest')",
+  "Sollis et al. 2023, Nucleic Acids Research", "ftp.ebi.ac.uk/pub/databases/gwas/releases/latest/", "2026-10-29", "~0.3 GB",
+  "curl with retry", "CHECKSUMS.md5 (local)", "GWAS lookup (gwas-lookup.py)"),
+ ("GWAS", "Six GWAS summary statistics (harmonised GRCh38)", "Hypothyroidism GCST90627749 (White 2026); SLE GCST003156 (Bentham 2015); "
+  "ulcerative colitis GCST004133 (de Lange 2017); multiple sclerosis GCST90558092 (Shigesi 2025); type 2 diabetes GCST006867 "
+  "(Xue 2018); atrial fibrillation GCST90624412 (Yuan 2025)", "see column 'What it is'", "GWAS Catalog summary statistics FTP",
+  "2026-10-29", "~4 GB", "curl with retry", "CHECKSUMS.md5 (local)", "Colocalisation (coloc.py, coloc-susie.py)"),
+ ("Long reads", "1000 Genomes ONT alignments to T2T", "Per-person CRAMs (260 MAGE individuals); only target regions streamed",
+  "Schloissnig et al. 2025, Nature", "ftp.1000genomes.ebi.ac.uk .../1KG_ONT_VIENNA/t2t/", "2026-10-29", "~10 Mb per person",
+  "samtools view -L (ont-call.sbatch)", "retried reads; Clair3 PASS calls", "SNPs in SD genes for allele-specific expression"),
  ("Sibling project", "GM12878 ChIP-seq peaks on both references", "ENCODE GM12878 ChIP-seq reprocessed from raw reads on T2T and GRCh38",
   "ENCODE; project t2t-atlas", "data/external/t2t-atlas-analysis (read-only link)", "—", "—",
   "t2t-atlas", "—", "Planned: regulatory elements at changed eQTLs (H5)"),
@@ -227,6 +275,9 @@ src = [
   "pixi.toml", "sha256", "Steps 4-5"),
  ("Software", "Nextflow DSL2, pixi, R 4.5 (ggplot2), Graphviz 14", "Workflow, environments, figures", "—", "conda-forge / bioconda", "—", "—",
   "pixi.toml", "—", "Pipeline and this workbook"),
+ ("Software", "R coloc 5.2.3, susieR 0.14; Clair3 2.0.3, WhatsHap 2.8, minimap2 2.31", "Colocalisation; long-read SNP calling and "
+  "phasing; mappability of SNP windows", "Giambartolomei 2014; Wallace 2021; Wang 2020", "conda-forge / bioconda; cluster module", "2026-10-29",
+  "—", "pixi.toml (default and 'longread' environments)", "—", "Steps 6 (H6, allele-specific expression)"),
 ]
 r = table(ws, 4, 1, ["Type", "Resource", "What it is", "Publication / origin", "Accession / URL", "Retrieved", "Size",
                      "How obtained (script)", "How checked", "Used for"], src,
@@ -258,9 +309,9 @@ for row in ws.iter_rows(min_row=2, min_col=7, max_col=7):
 ws.freeze_panes = "C2"; ws.auto_filter.ref = f"A1:P{len(rows)+1}"
 n_last = len(rows) + 1
 note_r = n_last + 2
-ws.cell(note_r, 1, "Mapping rates (STAR) are filled for MAGE; Geuvadis runs are being processed. Two Geuvadis runs "
+ws.cell(note_r, 1, "Mapping rates (STAR) are filled for MAGE; Geuvadis rates are in results/04-expression/geuvadis/matrices/runs.tsv. Two Geuvadis runs "
                    "(NA07000, HG00237) have no population in E-GEUV-1. Source: config/samplesheets/*.csv, "
-                   "results/03-expression/mage/matrices/runs.tsv.").font = NOTE
+                   "results/04-expression/mage/matrices/runs.tsv.").font = NOTE
 
 # sample summary with formulas over the Samples sheet
 ws = wb.create_sheet("Sample summary")
@@ -302,9 +353,9 @@ h = image(ws, "B3", FD / "fig01-pipeline.png", 900)
 r = 3 + int(h / 20) + 2
 steps = [
  ("1", "Genotypes on T2T", "Subset the phased 1KGP T2T panel to the expression individuals", "bcftools 1.23.1", "scripts/01-genotypes/", "minutes"),
- ("2 / 2b", "Pilots", "5 Geuvadis + 5 MAGE runs on both references; go/no-go 1 passed", "STAR, salmon", "scripts/02-rnaseq-pilot/", "~2 h"),
+ ("2 / 2b", "Pilots", "5 Geuvadis + 5 MAGE runs on both references; go/no-go 1 passed", "STAR, salmon", "scripts/03-rnaseq-pilot/", "~2 h"),
  ("3", "Expression (Nextflow)", "Per run: SRA download and checks, STAR GeneCounts and salmon on three references, read counts per contig; "
-  "merged into gene x individual matrices", "sra-tools, STAR 2.7.11b, salmon 1.11.4, Nextflow", "scripts/03-expression/ (nextflow/, submit-cohort.sh)",
+  "merged into gene x individual matrices", "sra-tools, STAR 2.7.11b, salmon 1.11.4, Nextflow", "scripts/04-expression/ (nextflow/, submit-cohort.sh)",
   "MAGE: 6,157 CPU h (779 runs x 3 references)"),
  ("4", "Genotypes on GRCh38", "Download and subset the NYGC phased panel", "curl, bcftools", "scripts/01-genotypes/grch38/", "hours"),
  ("6a", "Variant matching", "Pair T2T and GRCh38 variants (liftOver only to pair, same alleles, MAF within 0.02); 12.6 M matched", "UCSC liftOver, pandas",
@@ -313,6 +364,14 @@ steps = [
   "tensorQTL 1.0.10, plink2", "scripts/05-eqtl/", "~44 CPU h per reference and method"),
  ("6", "Comparison", "eGene presence, same-variant effect sizes (z), STAR AND salmon rule, region classes and artefact flags, read destination",
   "pandas, scipy", "scripts/06-compare/", "minutes"),
+ ("6b", "Paired test and gene sets", "Effect difference with the covariance of the two slopes from the same individuals; bootstrap "
+  "calibration; gene sets core / main / extent", "numpy, pandas", "scripts/06-compare/paired-test.py, define-gene-sets.py", "~17 min per run"),
+ ("6c", "Replication and copy number", "Paired test in the 358 Geuvadis individuals not in MAGE at MAGE's variant pairs; ctyper copy "
+  "number as covariate", "numpy, pandas", "scripts/06-compare/replicate-changes.py, ctyper-copy-number.py", "minutes"),
+ ("6d", "GWAS", "GWAS Catalog lookup with matched background; coloc on both references; SuSiE-coloc with LD", "coloc, susieR, plink2",
+  "scripts/06-compare/gwas-lookup.py, coloc.py, coloc-susie.py", "38 min; 2 h"),
+ ("6e", "Allele-specific expression (running)", "Feasibility; RNA realignment of target genes in 347 individuals; ONT SNP calls in 260",
+  "STAR, minimap2, Clair3, WhatsHap", "scripts/06-compare/ase-*.py, ase-realign.sbatch, ont-call.sbatch", "~24 min per run; ~15 min per person"),
  ("7", "Presentation", "Figure data, R figures, Graphviz diagram, this workbook", "R 4.5 ggplot2, Graphviz, openpyxl", "scripts/07-presentation/", "minutes"),
 ]
 ws.cell(r, 2, "Steps").font = H2
@@ -344,25 +403,49 @@ figs = [
   "which agree with each other.",
   "Our pipeline reproduces the published artefacts; T2T fixes them as the patch does."),
  ("Fig7 Effects", "fig07-effect-comparison.png", "Figure 7. Same gene, same variant on T2T vs patched GRCh38",
-  "Each point is a gene: the effect (slope) of its lead variant on patched GRCh38 (x) and on T2T (y). On the diagonal = no change.",
-  "Almost all of ~15,000 genes lie on the diagonal. 57 change robustly (coloured): with both quantifiers, same direction, no "
-  "artefact flag. None lies in a FixItFelix region; half are in segmental duplications.",
+  "Each point is a gene: the effect (slope) of its lead variant on patched GRCh38 (x) and on T2T (y). On the diagonal = no change. "
+  "Colour: core (old test), the further main genes (paired test, at least 0.1 SD), extent only (smaller changes).",
+  "Almost all of ~15,000 genes lie on the diagonal. 117 change by at least 0.1 SD with both quantifiers and no artefact flag "
+  "(255 including smaller changes). None lies in a FixItFelix region; half are in segmental duplications.",
   "T2T changes eQTLs beyond the known patches (H0)."),
- ("Fig8 57 genes", "fig08-robust-genes.png", "Figure 8. The 57 robustly changed genes",
-  "Left: effect difference z per gene (colour = region class). Right top: genes by which reference shows the stronger effect. "
+ ("Fig8 Paired test", "fig08-paired-test.png", "Figure 8. The paired test",
+  "Left: z of the effect difference with the old independent-samples test (x) and the paired test (y), every compared gene; "
+  "dashed: Bonferroni. Top right: bootstrap SD of the difference divided by each formula's se (1 = correct), with genomic "
+  "inflation lambda. Bottom right: share replicating in 358 independent Geuvadis individuals for each definition of a change.",
+  "The independent test is 9-15 times too conservative; the paired test matches the bootstrap (0.95) and has lambda 1.03 on the "
+  "null pair. Replication rises with the size floor and levels off at 0.1 SD (91% of the main set).",
+  "Comparing references on the same people needs a paired test; the main set is 117 genes."),
+ ("Fig9 Core genes", "fig09-robust-genes.png", "Figure 9. The 57 core genes (old independent test; mechanism analyses)",
+  "Left: effect difference z per gene, independent test (colour = region class). Right top: effect pattern at the same variant (stronger on "
+  "one reference with the same sign; reversed = opposite signs, both p < 1e-5; opposite sign with one effect weak). "
   "Right bottom: how strongly each gene's read loss is mirrored by one partner gene.",
-  "Changes go both ways (30 stronger on T2T, 27 on patched GRCh38). 33/57 have a clear partner gene that takes their reads.",
+  "13 stronger on T2T, 13 on patched GRCh38, 13 reversed, 18 opposite sign with one weak effect. 33/57 have a clear partner "
+  "gene that takes their reads.",
   "The changes are a read-placement phenomenon in gene families."),
- ("Fig9 Read swaps", "fig09-paralog-swaps.png", "Figure 9. Where the reads go",
+ ("Fig10 Read swaps", "fig10-paralog-swaps.png", "Figure 10. Where the reads go",
   "Each dot is one person: change in the gene's expression (T2T minus patched GRCh38) vs change in its partner.",
   "CCZ1/CCZ1B and ASAH2/ASAH2B swap reads almost exactly; RPSA loses reads to its processed pseudogene RPSA2; "
   "PDPR on GRCh38 holds part of the reads that T2T assigns to a gene in sequence GRCh38 lacks (r = -0.82, about 8% of its change).",
   "Missing or collapsed sequence moves reads between copies, and the move differs between people."),
- ("Fig10 Examples", "fig10-eqtl-examples.png", "Figure 10. Three eQTLs on two references",
+ ("Fig11 Examples", "fig11-eqtl-examples.png", "Figure 11. Three eQTLs on two references",
   "Normalised expression by genotype at the lead variant, for the same people, on two references.",
   "PWP2: strong genotype effect only on unpatched GRCh38 (the known artefact). CCZ1: the effect reverses direction. "
   "SMN2: a much stronger effect on T2T.",
   "The reference can create, remove or reverse an eQTL."),
+ ("Fig12 Replication", "fig12-replication.png", "Figure 12. Replication in Geuvadis at the same variants",
+  "Left: paired z of the effect difference (T2T minus patched GRCh38) for each main-set gene in MAGE (x) and in the 358 Geuvadis "
+  "individuals not in MAGE (y), at the same variant pair; colour = core or further main gene, shape = replication. Right: slope of "
+  "each solid H1 example (lead variant in T2T-only sequence) in MAGE and Geuvadis.",
+  "100 of 110 testable genes replicate (same direction, p < 0.05 with STAR and salmon), 86 after Bonferroni; core 53 of 54. "
+  "8 of 15 solid H1 examples replicate beyond the best shared variant (5 distinct variants).",
+  "The reference-driven changes are reproducible in independent individuals; H1 contributes a few solid examples."),
+ ("Fig13 GWAS", "fig13-gwas.png", "Figure 13. GWAS lookup and colocalisation on each reference",
+  "Left: colocalisation posterior PP4 (one shared causal variant) on the patched GRCh38 (x) and T2T (y) for gene x trait pairs "
+  "with PP4 >= 0.5 on either; shaded = colocalises on one reference only. Right: share of genes with a GWAS Catalog hit in LD, "
+  "and with a hit reached through only one reference's lead, for the main set and matched unchanged genes.",
+  "No enrichment at GWAS loci (51% vs 46%), but the link depends on the reference far more often (26% vs 4%). 8 of 15 "
+  "colocalising genes colocalise on one reference only; SuSiE-coloc confirms IFITM3-AS1, LOC124903630 and SERF1B, not PTGES3.",
+  "The reference can change which gene a disease signal is attributed to."),
 ]
 for name, png, title, how, what, take in figs:
     ws = wb.create_sheet(name)
@@ -377,7 +460,7 @@ for name, png, title, how, what, take in figs:
 
 # ------------------------------------------------------------------------------------------------------------
 ws = wb.create_sheet("Key results")
-ws.cell(1, 1, "Key results (MAGE, 731 individuals, chr1-22)").font = TITLE
+ws.cell(1, 1, "Key results (MAGE discovery, 731 individuals; Geuvadis replication, 451; chr1-22)").font = TITLE
 eg = pd.read_csv(DD / "egenes.tsv", sep="\t")
 lab = {"chm13v2.0": "T2T-CHM13", "grch38": "GRCh38", "grch38-ffx": "Patched GRCh38"}
 r = 3; ws.cell(r, 1, "eGenes (FDR 5%), matched variants").font = H2
@@ -394,15 +477,77 @@ rows = [[lab[k], round(qcm[f"unique_pct_{k}"], 2), round(qcm[f"multi_pct_{k}"], 
 r = table(ws, r + 1, 1, ["Reference", "Uniquely mapped %", "Multi-mapped %", "Unmapped 'other' %"], rows)
 ws.cell(r - 1, 1, "Unmapped 'other' is higher on T2T (0.93% vs 0.09%); not yet explained (open item).").font = NOTE
 r += 1
-ws.cell(r, 1, "Genes changed between references (same gene, same variant; Bonferroni 5%)").font = H2
-rows = [["Patched GRCh38 vs GRCh38 (control)", 9, 9, 8, 6, 0, 6],
-        ["T2T vs GRCh38", 145, 563, 79, 63, 34, 5],
-        ["T2T vs patched GRCh38 (H0)", 138, 549, 71, 57, 33, 0]]
+ws.cell(r, 1, "Genes changed between references (same gene, same variant; STAR and salmon agree; no artefact flag)").font = H2
+rows = [["Patched GRCh38 vs GRCh38 (control)", 6, 7, 8, 0, 7],
+        ["T2T vs GRCh38", 63, 121, 246, 59, 6],
+        ["T2T vs patched GRCh38 (H0)", 57, 117, 255, 59, 0]]
 r0 = r + 1
-r = table(ws, r0, 1, ["Comparison", "STAR", "salmon", "STAR and salmon", "... no artefact flag", "... in SDs", "... in FixItFelix regions"], rows)
-for j, w in zip(range(6, 8), (12, 20)):
-    ws.column_dimensions[get_column_letter(j)].width = w
-ws.cell(r - 1, 1, "Source: results/06-compare/eqtl-comparison/mage/robust-matched/summary.tsv (after the allele-sign fix of 2026-10-25).").font = NOTE
+r = table(ws, r0, 1, ["Comparison", "Core (independent test)", "Main (paired, |delta| >= 0.1 SD)", "Extent (paired)",
+                      "Main, in SDs", "Main, in FixItFelix regions"], rows)
+ws.cell(r - 1, 1, "Sources: results/06-compare/eqtl-comparison/mage/gene-sets/changed-*.tsv (define-gene-sets.py); docs/t2t-eqtl.md 13B.4.").font = NOTE
+r += 1
+ws.cell(r, 1, "Paired test: calibration (300 random genes x 200 bootstrap resamples of individuals)").font = H2
+cal = pd.read_csv(DD / "calibration.tsv", sep="\t")
+rows = [[x.pair, x.method, round(x.median_boot_over_paired, 3), round(x.median_boot_over_indep, 3), round(x.lambda_indep, 3),
+         round(x.lambda_paired, 2), round(x.median_rho, 3)] for x in cal.itertuples()]
+r = table(ws, r + 1, 1, ["Pair", "Method", "Bootstrap SD / paired se", "Bootstrap SD / independent se", "lambda, independent",
+                         "lambda, paired", "Median residual correlation"], rows)
+ws.cell(r - 1, 1, "1 = the formula is right. The null pair (patched vs GRCh38, salmon) has lambda 1.03. Source: paired-matched/calibration.tsv.").font = NOTE
+r += 1
+ws.cell(r, 1, "How large a change? Gene count and replication by definition (T2T vs patched GRCh38)").font = H2
+sf = pd.read_csv(DD / "size-floor.tsv", sep="\t")
+rows = [[x.definition, x.genes, x.of_57, x.sd, x.tested, x.same_sign, x.nominal, x.bonferroni, None] for x in sf.itertuples()]
+r0 = r + 1
+r = table(ws, r0, 1, ["Definition", "Genes", "Of the 57", "In SDs", "Geuvadis tested", "Same sign", "p < 0.05", "Bonferroni",
+                      "Share replicating"], rows)
+for i in range(len(rows)):
+    c = ws.cell(r0 + 1 + i, 9, f"=G{r0+1+i}/E{r0+1+i}"); c.number_format = "0%"; c.font = BODY
+ws.cell(r - 1, 1, "Replication in the 358 Geuvadis individuals not in MAGE, paired test at MAGE's variant pairs, STAR and salmon. "
+                  "Main set = |delta| >= 0.1 SD under both methods (decided 2026-10-29).").font = NOTE
+r += 1
+ws.cell(r, 1, "Replication in Geuvadis at the same variants (358 individuals not in MAGE)").font = H2
+gs = pd.read_csv(DD / "gene-sets.tsv", sep="\t")
+h0 = pd.read_csv(DD / "replication-h0.tsv", sep="\t").query("tested")
+h1 = pd.read_csv(DD / "replication-h1.tsv", sep="\t")
+h1s = h1[(h1.disc_genotype_call == "solid") & h1.disc_signal.isin(["T2T-only variant explains it", "both contribute"])]
+rev = h0[h0.effect_class == "Reversed"]
+rep = lambda x: [int(x.geuvadis_same_sign.notna().sum()), int(x.geuvadis_same_sign.eq(True).sum()),
+                 int(x.geuvadis_nominal.eq(True).sum()), int(x.geuvadis_bonferroni.eq(True).sum())]
+rows = [["Main set, 117 genes (paired test)"] + rep(gs[gs.tier.isin(["core", "main"])]),
+        ["... core 57"] + rep(gs[gs.tier == "core"]),
+        ["... further 60"] + rep(gs[gs.tier == "main"]),
+        ["Extent, 255 genes"] + rep(gs),
+        ["Reversals (core): slopes again of opposite sign, none near zero (STAR and salmon)", len(rev), int(reversed_again(rev).sum()), int(rev.nominal.sum()), int(rev.bonferroni.sum())],
+        ["H1: solid T2T-only lead variants", len(h1s), int(h1s.same_sign.sum()), int(h1s.replicated.sum()), int(h1s.signal_replicated.sum())]]
+r = table(ws, r + 1, 1, ["Set", "Tested", "Same direction", "Replicated (p < 0.05 both methods; H1: Bonferroni)",
+                         "Bonferroni both methods; H1: also beyond shared variant"], rows)
+ws.cell(r - 1, 1, "Sources: geuvadis/paired-matched-at-mage/ (paired-test.py --at mage) and replication-geuvadis-independent/ "
+                  "(replicate-changes.py, replicate-h1.py --exclude-shared; the reversal row uses the independent test).").font = NOTE
+r += 1
+ws.cell(r, 1, "ctyper copy number as a covariate (genes covered by ctyper)").font = H2
+cn = pd.read_csv(DD / "copy-number.tsv", sep="\t")
+rows = [[name, len(x), int(x.still_changed.sum()), round(float((x.delta_cn / x.delta).median()), 2),
+         ", ".join(x.loc[~x.still_changed, "symbol"]) or "—"]
+        for name, x in [("Main set", cn[cn.tier.isin(["core", "main"])]), ("... core", cn[cn.tier == "core"]), ("Extent", cn)]]
+r = table(ws, r + 1, 1, ["Set", "Covered", "Still changed, same sign", "Median delta ratio (with / without)", "Lost"], rows)
+ws.cell(r - 1, 1, "Source: paired-matched-cn/ (paired-test.py --copy-number). NUTM2D stays nominally significant (STAR z -3.5).").font = NOTE
+r += 1
+ws.cell(r, 1, "Colocalisation with GWAS on each reference (gene x trait pairs with PP4 >= 0.5 on either)").font = H2
+co = pd.read_csv(DD / "coloc.tsv", sep="\t")
+su = pd.read_csv(ROOT / "results/06-compare/gwas/coloc-susie-mage-chm13v2.0-vs-grch38-ffx.tsv", sep="\t")
+co = co.merge(su[["symbol", "trait", "susie_PP4_chm13v2.0", "susie_PP4_grch38-ffx"]], on=["symbol", "trait"], how="left")
+co = co.sort_values(["call", "symbol"])
+fmt = lambda v: None if pd.isna(v) else round(float(v), 3)
+rows = [[x["symbol"], x["tier"], x["trait"], x["call"], fmt(x["PP4_chm13v2.0"]), fmt(x["PP4_grch38-ffx"]), fmt(x["PP3_chm13v2.0"]),
+         fmt(x["PP3_grch38-ffx"]), x["gwas_min_p_chm13v2.0"], fmt(x["susie_PP4_chm13v2.0"]), fmt(x["susie_PP4_grch38-ffx"])]
+        for _, x in co.iterrows()]
+r0 = r + 1
+r = table(ws, r0, 1, ["Gene", "Set", "Trait", "coloc call", "PP4 T2T", "PP4 patched", "PP3 T2T", "PP3 patched", "GWAS min p",
+                      "SuSiE PP4 T2T", "SuSiE PP4 patched"], rows)
+for i in range(len(rows)):
+    ws.cell(r0 + 1 + i, 9).number_format = "0.0E+00"
+ws.cell(r - 1, 1, "coloc.abf (one causal variant) and SuSiE-coloc (several; empty = no credible set for the eQTL or GWAS on that reference). "
+                  "Sources: results/06-compare/gwas/coloc-*.tsv.").font = NOTE
 r += 1
 ws.cell(r, 1, "Positive control: q-value of the FixItFelix genes").font = H2
 pcq = pd.read_csv(DD / "positive-control.tsv", sep="\t").pivot(index="symbol", columns="reference", values="qval")
@@ -414,12 +559,30 @@ for i in range(len(rows)):
         ws.cell(r0 + 1 + i, j).number_format = "0.0E+00"
 
 # ------------------------------------------------------------------------------------------------------------
+ws = wb.create_sheet("Gene sets")
+ws.cell(1, 1, "Changed genes, T2T vs patched GRCh38: core (independent test) ⊂ main (paired, |delta| >= 0.1 SD) ⊂ extent (paired)").font = TITLE
+gsx = pd.read_csv(DD / "gene-sets.tsv", sep="\t", dtype={"gene_ncbi": str})
+gsx["tier_order"] = gsx.tier.map({"core": 0, "main": 1, "extent": 2})
+gsx = gsx.sort_values(["tier_order", "z_paired"], key=lambda c: c.abs() if c.name == "z_paired" else c, ascending=[True, False])
+cls = {"sd": "Segmental duplication", "other": "Other", "t2t_new_sequence": "T2T-only sequence", "ffx_patched": "FixItFelix region"}
+yn = lambda v: None if pd.isna(v) else ("yes" if v in (True, "True") else "no")
+rows = [[x.symbol, x.gene_ncbi, x.biotype, cls.get(x.region_class, x.region_class), x.tier, round(x.slope_a, 3), round(x.slope_b, 3),
+         round(x.delta, 3), round(x.z_paired, 1), round(x.delta_salmon, 3), round(x.z_paired_salmon, 1),
+         yn(x.geuvadis_nominal), yn(x.geuvadis_bonferroni)] for x in gsx.itertuples()]
+r = table(ws, 3, 1, ["Gene", "NCBI GeneID", "Biotype", "Region class", "Set", "Slope T2T", "Slope patched GRCh38", "Delta (STAR)",
+                     "Paired z (STAR)", "Delta (salmon)", "Paired z (salmon)", "Geuvadis p < 0.05", "Geuvadis Bonferroni"],
+          rows, widths=[16, 12, 20, 20, 9, 10, 12, 11, 11, 11, 11, 12, 12])
+ws.auto_filter.ref = f"A3:M{3+len(rows)}"
+ws.cell(r, 1, "Set 'main' = further genes of the main set (the main set is core + main, 117 genes); 'extent' = changed but |delta| < 0.1 SD "
+              "under at least one method. Geuvadis: 358 individuals not in MAGE, MAGE's variant pair, paired test, STAR and salmon "
+              "(empty = not testable). Source: results/06-compare/eqtl-comparison/mage/gene-sets/changed-chm13v2.0-vs-grch38-ffx.tsv.").font = NOTE
+
 ws = wb.create_sheet("57 genes")
-ws.cell(1, 1, "The robust set: genes T2T changes relative to the patched GRCh38 (STAR and salmon agree, no artefact flag)").font = TITLE
+ws.cell(1, 1, "The 57 core genes: changed with the independent-samples test (STAR and salmon agree, no artefact flag)").font = TITLE
 rg = pd.read_csv(DD / "robust-genes.tsv", sep="\t", dtype={"gene_ncbi": str}).sort_values("p_diff")
 cls = {"sd": "Segmental duplication", "other": "Other", "t2t_new_sequence": "T2T-only sequence", "ffx_patched": "FixItFelix region"}
 rows = [[x.symbol, x.gene_ncbi, x.biotype, cls.get(x.region_class, x.region_class),
-         "T2T" if x.stronger_on == "chm13v2.0" else "Patched GRCh38", round(x.slope_a, 3), round(x.slope_b, 3),
+         {"stronger on chm13v2.0": "Stronger on T2T", "stronger on grch38-ffx": "Stronger on patched GRCh38"}.get(x.pattern, "Opposite sign"), round(x.slope_a, 3), round(x.slope_b, 3),
          round(x.z_diff, 1), round(x.z_diff_salmon, 1), x.p_diff, round(x.geno_r, 3),
          round(x.cpm_chm13v2_0, 2) if hasattr(x, "cpm_chm13v2_0") else None, None,
          x.partner, cls.get(x.partner_class, x.partner_class), round(x.partner_r, 2) if pd.notna(x.partner_r) else None]
@@ -427,7 +590,7 @@ rows = [[x.symbol, x.gene_ncbi, x.biotype, cls.get(x.region_class, x.region_clas
 cpm_b = rg["cpm_grch38-ffx"].round(2).tolist()
 for row, b in zip(rows, cpm_b):
     row[12] = b
-hdr = ["Gene", "NCBI GeneID", "Biotype", "Region class", "Stronger on", "Slope T2T", "Slope patched GRCh38", "z (STAR)",
+hdr = ["Gene", "NCBI GeneID", "Biotype", "Region class", "Effect pattern", "Slope T2T", "Slope patched GRCh38", "z (STAR)",
        "z (salmon)", "p (STAR)", "Genotype r between panels", "CPM T2T", "CPM patched GRCh38", "Read partner",
        "Partner class", "Partner r"]
 r = table(ws, 3, 1, hdr, rows, widths=[16, 12, 20, 20, 15, 10, 12, 9, 9, 10, 12, 10, 12, 18, 20, 9])
@@ -445,7 +608,20 @@ gl = [("eQTL", "A DNA variant whose alleles go with different expression levels 
       ("eGene", "A gene with at least one significant eQTL (here FDR 5% after permutations)."),
       ("Lead variant", "The variant with the strongest association for a gene."),
       ("Slope / effect size", "Change in normalised expression per copy of the alternative allele."),
-      ("z (effect difference)", "(slope on reference A - slope on B) / combined standard error, for the same gene and variant."),
+      ("z (effect difference)", "(slope on reference A - slope on B) / standard error of the difference, for the same gene and variant."),
+      ("Paired test", "The effect difference tested with the covariance of the two slopes, because both come from the same individuals; "
+       "the independent-samples test ignores it and is far too conservative here."),
+      ("Gene sets: core / main / extent", "Core: 57 genes changed with the old independent test. Main: 117 genes changed with the paired "
+       "test by at least 0.1 SD under both methods (includes core). Extent: 255 genes changed with the paired test, any size."),
+      ("Bootstrap", "Resampling individuals with replacement to measure the spread of an estimate directly."),
+      ("Genomic inflation (lambda)", "Median test statistic over all genes relative to its expected value under no change; 1 = as expected."),
+      ("Copy number (ctyper)", "How many copies of a gene (or gene family) a person carries, genotyped from short reads with pangenome alleles."),
+      ("GWAS", "Genome-wide association study: variants associated with a disease or trait."),
+      ("Colocalisation (coloc)", "Test whether an eQTL and a GWAS signal share one causal variant. PP4 = posterior probability of a "
+       "shared variant; PP3 = two different variants."),
+      ("SuSiE-coloc", "Colocalisation allowing several causal variants per region, using LD between variants."),
+      ("LD (r2)", "Linkage disequilibrium: how strongly the genotypes of two variants go together in a population."),
+      ("Allele-specific expression", "Within one heterozygous person, more RNA from one haplotype than the other; tests an eQTL's direction."),
       ("LCL", "Lymphoblastoid cell line: immortalised B cells, the cell type of MAGE, Geuvadis and GM12878."),
       ("T2T-CHM13", "The first complete (telomere-to-telomere) human genome assembly (Nurk 2022)."),
       ("GRCh38", "The standard human reference since 2013; has gaps, false duplications and collapsed duplications."),
@@ -468,14 +644,24 @@ ws.cell(1, 1, "Status, caveats and next steps").font = TITLE
 st = [("Done", "MAGE expression on three references (779 runs, 731 individuals)", "2026-10-24"),
       ("Done", "cis-eQTL mapping on MAGE, chr1-22, STAR and salmon, matched variants", "2026-10-25"),
       ("Done", "Same-variant comparison, robust set (57 genes), read destination (33 with a clear partner)", "2026-10-25"),
-      ("Running", "Geuvadis expression (652 runs, 11 batches) for replication", "expected 2026-10-27"),
-      ("Running", "eQTL mapping with all variants, including T2T-only variants (H1)", "2026-10-25"),
+      ("Done", "eQTL mapping with all variants; H1 lead-variant quality check (15 solid examples)", "2026-10-26"),
+      ("Done", "Geuvadis expression (652 runs, 451 individuals) and eQTL mapping on three references, STAR and salmon", "2026-10-27"),
+      ("Done", "Replication at the same variants: 50/54 changed genes (44 Bonferroni), 10/12 reversals, 8 H1 genes at 5 variants", "2026-10-28"),
+      ("Done", "Replication without the 93 individuals in both cohorts (358): unchanged", "2026-10-28"),
+      ("Done", "Paired test of effect changes, bootstrap calibration; gene sets core 57 / main 117 / extent 255", "2026-10-28/29"),
+      ("Done", "ctyper copy number as covariate: 55 of 62 covered main-set genes unchanged", "2026-10-28"),
+      ("Done", "GWAS Catalog lookup with matched background; coloc with six GWAS on both references; SuSiE-coloc", "2026-10-29"),
+      ("Running", "Allele-specific expression: RNA realignment of 347 individuals (target genes) and ONT SNP calls in 260", "2026-10-29"),
+      ("Next", "Allele-specific counts, reference-bias correction and direction test per gene and reference", ""),
+      ("Next", "Read destination for the 60 further main genes, and in Geuvadis", ""),
       ("Next", "chrX (pseudo-autosomal boundaries per reference)", ""),
-      ("Next", "Paralog copy number from ctyper as a covariate", ""),
-      ("Next", "Genes without a single read partner (24): look at multi-mapped reads in the BAMs", ""),
-      ("Next", "Link changed eQTLs to GM12878 regulatory elements (t2t-atlas) and GWAS colocalisation (H5, H6)", ""),
+      ("Next", "Genes without a single read partner (24 core): look at multi-mapped reads in the BAMs", ""),
+      ("Next", "Link changed eQTLs to GM12878 regulatory elements (t2t-atlas, H5)", ""),
       ("Caveat", "salmon alone calls ~550 genes changed, mostly not seen with STAR: transcript annotations differ between the two assemblies; hence the both-methods rule", ""),
       ("Caveat", "An allele-orientation error for some indels (fixed 2026-10-25) had added 12 false genes; orientation now comes from the genotypes", ""),
+      ("Caveat", "'Stronger on' (larger |slope|) is not meaningful when the slopes have opposite signs (31 of 57 genes); tables now give the effect pattern", ""),
+      ("Caveat", "Single-variant coloc is not robust at PTGES3 and SCAF11 (not confirmed by SuSiE-coloc); 4 loci untestable with European reference LD", ""),
+      ("Caveat", "Copy number explains part of the change for NUTM2D, PDPR2P, SMN1, SERF1B, NPIPB6, GRAPL, GSTM2", ""),
       ("Caveat", "Unmapped 'other' reads are higher on T2T (0.93% vs 0.09%); not yet explained", ""),
       ("Caveat", "LOC124906110 correlates with many unrelated genes; treat as a possible technical artefact", "")]
 table(ws, 3, 1, ["Status", "Item", "Date"], st, widths=[12, 120, 20])

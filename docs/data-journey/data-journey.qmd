@@ -1,0 +1,1584 @@
+---
+title: "The data journey"
+subtitle: "t2t-eqtl: from raw reads and genotypes to eQTLs that depend on the reference genome"
+author: "Yusuf Maulana"
+date: 2026-10-31
+date-format: "D MMMM YYYY"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    toc-title: "Contents"
+    number-sections: true
+    embed-resources: true
+    theme: default
+    css: data-journey.css
+    fig-cap-location: bottom
+    tbl-cap-location: top
+    smooth-scroll: true
+    anchor-sections: true
+    code-overflow: scroll
+---
+
+::: {.lead}
+This document follows the project's data from the first download to the last analysis. Each chapter explains what a stage does, why it is built the way it is, and what goes in and comes out. To keep it concrete, the same **two people** and **two genes** are followed through every stage, with the real numbers from the project's files.
+:::
+
+::: {.callout-tip}
+## How to read this
+
+- Each chapter matches one stage folder (`scripts/NN-…`, `results/NN-…`, `logs/NN-…`).
+- The boxes titled **"Following the samples"** show what happened to our two people and two genes at that stage.
+- `docs/t2t-eqtl.md` remains the full record (section numbers are given in brackets, e.g. [13B.4]). This page explains it; it does not replace it.
+- `docs/stage-04-expression.html` goes deeper into the expression pipeline alone.
+- Stages 04, 05 and 06 each end with **"The tools"** (how STAR, salmon, plink2, tensorQTL, liftOver and the comparison scripts work) and **"The files, row by row"** (the first 10 rows of every key output file, column by column).
+:::
+
+# The question in one page {#sec-question}
+
+## What an eQTL is
+
+People differ in their DNA. At some positions (variants), one person carries an `A` and another a `C`. An **eQTL** (expression quantitative trait locus) is a variant where the allele a person carries goes together with how much RNA a nearby gene makes. For example, people with two `C` alleles make more of gene X than people with two `A` alleles.
+
+To find eQTLs you need three things for many people:
+
+1. their **genotypes** (which alleles they carry),
+2. their **gene expression** (RNA-seq reads counted per gene),
+3. a **reference genome** to place both on.
+
+## Why the reference genome matters
+
+Every one of those three inputs depends on the reference:
+
+- **Genotypes** are called by aligning DNA reads to the reference. A region missing from the reference cannot have variants called in it.
+- **Expression** is measured by aligning RNA reads to the reference and counting reads per gene. If the reference has two copies of a sequence where people have one (a *false duplication*), the reads split between the copies or are thrown away as ambiguous.
+- **Genes** are defined by an annotation made for that reference.
+
+GRCh38, the standard reference, is incomplete and has errors: missing sequence, falsely duplicated regions (part of chr21), and collapsed duplications. **T2T-CHM13v2.0** is the first complete human genome (2022).
+
+## What was known, and what this study adds
+
+**FixItFelix** (Behera et al. 2023) patched about 20 known errors in GRCh38 and showed that some GRCh38 eQTLs in those regions are artefacts (for example **PWP2** on chr21). This study asks the bigger question:
+
+> **H0 (central claim):** most genes whose eQTLs change between GRCh38 and T2T lie *outside* the regions FixItFelix patched.
+
+That is why there are **three references**, not two:
+
+| Reference | Short name | Role |
+|---|---|---|
+| T2T-CHM13v2.0 | `chm13v2.0` | the complete reference |
+| GRCh38 | `grch38` | the standard reference |
+| GRCh38 with FixItFelix's patch | `grch38-ffx` | "would patching GRCh38 be enough?" |
+
+- **GRCh38 vs patched GRCh38** differ only in the patched regions. This is the **positive control**: it must reproduce FixItFelix.
+- **T2T vs patched GRCh38** is the **main comparison**: whatever changes here, the known patch did not fix.
+
+## The other hypotheses
+
+| | Hypothesis | Tested in |
+|---|---|---|
+| H1 | Variants in sequence only T2T has are eQTLs | @sec-h1 |
+| H2 | Genes missing or wrong in GRCh38 gain expression and eQTLs on T2T | @sec-compare |
+| H3 | Better read placement on T2T changes eQTLs, mostly in segmental duplications | @sec-compare |
+| H4 | Some GRCh38 eQTLs are artefacts (read competition, or false variants) | @sec-compare |
+| H5 | T2T-only eQTLs sit in GM12878 regulatory elements | not yet |
+| H6 | At some GWAS loci, the implicated gene changes with the reference | @sec-gwas |
+
+## The one design rule
+
+::: {.callout-important}
+## Change only the reference
+
+Same people, same raw reads, same software and versions, same gene annotation release, same covariates. Much of the code exists only to remove differences that are *not* the reference: chrM and EBV sequences, chrY PAR masking, genes matched by NCBI GeneID, genotype PCs shared by all references, variants paired across references. If anything else differed, a change could not be blamed on the reference.
+:::
+
+# The cast: two people, two genes {#sec-cast}
+
+These four follow us through the whole document.
+
+::: {.grid}
+::: {.g-col-12 .g-col-md-6}
+### HG00096
+- British man (GBR, 1000 Genomes)
+- In **both** cohorts: MAGE run SRR19762766 (20.7 M read pairs) and Geuvadis run ERR188040 (27.3 M)
+- One of the **93** people in both cohorts (matters for the independent replication, @sec-replication)
+:::
+::: {.g-col-12 .g-col-md-6}
+### NA19717
+- Mexican-American man (MXL)
+- In **MAGE only**: run SRR19762165 (21.8 M read pairs)
+- The run used as the example in the stage 04 walkthrough
+:::
+:::
+
+::: {.grid}
+::: {.g-col-12 .g-col-md-6}
+### PWP2 (chr21) — the positive control
+- Lies next to the GRCh38 **false duplication** on chr21
+- FixItFelix's flagship artefactual eQTL
+- Expected: strong eQTL on GRCh38, much weaker on T2T and on patched GRCh38
+:::
+::: {.g-col-12 .g-col-md-6}
+### ASAH2 (chr10) — an H0 example
+- Has a paralog, **ASAH2B**, a near-copy 500 kb away
+- **Not** in any FixItFelix region
+- One of the 57 "core" genes and one of 13 **reversed** eQTLs
+:::
+:::
+
+::: {.callout-note collapse="true"}
+## Where HG00096's MAGE run ID comes from
+HG00096 has one run in each cohort (MAGE SRR19762766, batch 10; Geuvadis ERR188040, batch 1), listed in `config/samplesheets/<cohort>.csv`. In the matrices (after @sec-merge) runs are merged per person, so from stage 04's matrices onward we refer to people, not runs.
+:::
+
+# The raw inputs {#sec-inputs}
+
+Everything starts from public data. Nothing is lifted over from GRCh38 into T2T; each reference gets its own native inputs.
+
+| Input | Source | Size / count | Used in |
+|---|---|---|---|
+| Phased genotypes on T2T | 1KGP panel on CHM13v2.0 (SHAPEIT5 v1.1, Lalli et al.) | 3,202 people, 13.0 GB BCF | stage 01 |
+| Phased genotypes on GRCh38 | 1KGP high-coverage NYGC panel | 3,202 people, per chromosome | stage 01 |
+| RNA-seq, discovery | **MAGE** (Taylor et al. 2024), SRA PRJNA851328 | 779 runs, 731 people, 2×150 bp | stage 04 |
+| RNA-seq, replication | **Geuvadis** (Lappalainen et al. 2013), ENA PRJEB3366 | 652 runs, 451 people, 2×76 bp | stage 04 |
+| Genome sequences | T2T-CHM13v2.0 (NCBI); GRCh38 no-alt analysis set; FixItFelix patched GRCh38 (Zenodo 7532965) | 3 FASTAs | stage 02 |
+| Gene annotation | NCBI RefSeq release **RS_2025_08**, on both assemblies | 58,600 / 59,257 genes | stage 02 |
+| Variant pairing | UCSC chain `hs1ToHg38` | — | stage 06 |
+| Region labels | FixItFelix regions (Tables S1–S2), T2T SDs, T2T-new sequence | BEDs | stage 06 |
+| Copy number | ctyper 1KGP table (Ma & Chaisson 2025) | 3,202 people | stage 06 |
+| GWAS | GWAS Catalog + 6 summary-statistic sets | — | stage 06 |
+
+**Why both cohorts?** MAGE is bigger and more diverse (26 populations, one lab), so it is the discovery set. Geuvadis is the dataset FixItFelix used, so it lets us check our chr21 results against theirs and replicate everything else.
+
+# Stage 01 — Genotypes on both references {#sec-genotypes}
+
+**Folder:** `scripts/01-genotypes/{chm13v2.0,grch38}` · **Output:** `results/01-genotypes/<ref>/expression/<chr>.bcf`
+
+## What it answers
+Which people can be used (they need both RNA and genotypes), and what are their genotypes on each reference?
+
+## Steps
+
+1. **`make-sample-lists.sh`** reads the MAGE and Geuvadis run reports and the T2T panel's sample names, and writes `config/samples/expression-individuals.tsv`:
+
+   | | People | In the T2T panel |
+   |---|---:|---:|
+   | MAGE | 731 | 731 |
+   | Geuvadis | 464 | 451 |
+   | in both cohorts | 93 | |
+   | **included** (731 + 451 − 93) | **1,089** | |
+
+2. **`fetch-panel`** downloads each panel (with retries; S3 resets connections from the cluster).
+3. **`subset-genotypes.sbatch`**, per chromosome and reference:
+   - keep the 1,089 included people;
+   - split multiallelic sites (eQTL tools test one alternative allele per row);
+   - recompute allele frequencies in these 1,089 people and drop sites that no longer vary;
+   - on T2T, count variants by whether they lie in sequence shared with GRCh38 (`SYNTENIC` flag) — the variants *without* it are the H1 candidates.
+
+## Key numbers
+
+| T2T variant class (1,089 people) | MAF ≥ 5% | 1–5% |
+|---|---:|---:|
+| In sequence shared with GRCh38 | 7.76 M | 6.15 M |
+| In T2T-only sequence | 18.2 k | 25.5 k |
+
+::: {.callout-note}
+## What this tells us early
+Common variants in T2T-only sequence are only **0.23%** of all common variants. Most new T2T sequence is satellite repeat, where short reads call few variants. So H1 (new variants) can give examples, not the main result. The main result has to come from *shared* variants whose effects are measured differently (H2–H4).
+:::
+
+::: {.callout-tip}
+## Following the samples — genotypes
+At the **PWP2** lead variant (T2T `chr21:42445383 A>C`, the same variant as GRCh38 `chr21:44089769 A>C`):
+
+| Person | Genotype | Copies of `C` |
+|---|---|---:|
+| HG00096 | A/A | 0 |
+| NA19717 | C/C | 2 |
+
+In MAGE: 288 people A/A, 303 A/C, 140 C/C.
+
+At the **ASAH2** variant compared later (T2T `chr10:51633608 A>C`): both men are **A/C** (heterozygous). In MAGE: 119 A/A, 293 A/C, 319 C/C.
+:::
+
+# Stage 02 — References {#sec-references}
+
+**Folder:** `scripts/02-references/` · **Output:** `data/star-references/<ref>/`
+
+## What it answers
+What exactly are reads aligned to and counted against, and how do we make the three references differ *only* where they should?
+
+## Making the references comparable
+
+The raw T2T and GRCh38 FASTAs differ in ways that have nothing to do with the question:
+
+| Difference | Fix | Why it matters for RNA |
+|---|---|---|
+| T2T (NCBI) has **no chrM** | add GRCh38's chrM (rCRS) to T2T | 5–8% of LCL RNA reads are mitochondrial; without chrM they would map to nuclear copies (NUMTs) |
+| T2T has **no chrEBV** | add GRCh38's chrEBV to T2T | the cell lines are EBV-transformed; viral reads must have somewhere to go |
+| chrY PARs | mask T2T chrY PARs, as GRCh38 does | otherwise X/Y PAR genes become multi-mapped on T2T only |
+
+All changes are made to T2T; GRCh38 is used as distributed.
+
+## Files made per reference
+
+| File | What it is | Used by |
+|---|---|---|
+| `genome.fa` | the sequence | STAR index |
+| `annotation.gtf` | RefSeq RS_2025_08 gene models | STAR counting |
+| `genes.tsv` | one row per gene with its **NCBI GeneID** | matching genes across references |
+| `transcripts.fa`, `tx2gene.tsv` | transcript sequences and transcript → gene map | salmon |
+| `star-2.7.11b-oh75/`, `-oh149/` | STAR indexes for 76 bp (Geuvadis) and 150 bp (MAGE) reads | alignment |
+| `keep-regions.bed` | candidate loci and MHC | which alignments each run keeps |
+
+**Gene matching.** The same RefSeq release was run on both assemblies, so the same gene has the same NCBI GeneID on both: 55,334 GeneIDs are on both, 3,875 only on GRCh38 and 3,172 only on T2T. Genes on one reference only are reported separately, never mixed into H0.
+
+**The third reference** (`grch38-ffx`) is FixItFelix's patched GRCh38: false copies masked with N, decoys added for collapsed genes. It uses GRCh38's gene models and GRCh38 genotypes.
+
+# Stage 03 — Pilot: is there anything to find? {#sec-pilot}
+
+**Folder:** `scripts/03-rnaseq-pilot/` · **Output:** `results/03-rnaseq-pilot/`
+
+Before spending ~8,000 CPU hours, five Geuvadis and five MAGE samples were aligned to T2T and GRCh38 (go/no-go point 1).
+
+| Result (5 Geuvadis samples) | Value |
+|---|---|
+| Median \|log2 T2T/GRCh38\| of expressed shared genes | 0.009 (STAR), 0.002 (salmon): the references agree almost exactly |
+| Multi-mapped reads | T2T 3.3–4.8% vs GRCh38 6.4–10.0% |
+| Genes changed ≥ 2-fold in all 5 | 176 (STAR) |
+| …of these in FixItFelix regions | 13 — so **93–96% are outside** |
+| Enrichment in segmental duplications | 8–9× |
+
+The pilot also produced the project's most important rule:
+
+::: {.callout-important}
+## A change counts only when STAR and salmon agree
+- **STAR GeneCounts** counts only reads that map to one place and fall in one gene.
+- **salmon** shares ambiguous reads between transcripts by likelihood.
+
+When a gene changes under both, reads really moved. When only STAR changes, the cause is usually the *annotation* (a new overlapping gene on one reference makes reads "ambiguous" for STAR). Example: S100A6, 27 vs 2.6 CPM in STAR, flat in salmon.
+:::
+
+Decision: **go**, with MAGE as discovery and Geuvadis as replication. The pilot is not used in the final analysis.
+
+# Stage 04 — Expression for whole cohorts {#sec-expression}
+
+**Folder:** `scripts/04-expression/` · **Output:** `results/04-expression/<cohort>/`
+
+## What it answers
+How much RNA does each gene make in each person, on each of the three references, from the same reads?
+
+## The pipeline in brief
+
+```
+samplesheet (one row per run, batches of 60)
+  → download .sra (validated)         ── at most ~2 batches on disk
+  → fasterq-dump → check read pairs = ENA
+  → for each of 3 references: STAR → salmon → idxstats → keep regions.bam → delete BAM
+  → complete.txt  (resume marker)
+  → delete .sra
+merge-expression.py → genes × people matrices per reference
+```
+
+Details: `docs/stage-04-expression.html`.
+
+## Key numbers
+
+| | MAGE | Geuvadis |
+|---|---:|---:|
+| Runs / people | 779 / 731 | 652 / 451 |
+| Read length | 2 × 150 | 2 × 76 |
+| Genes in matrix (T2T / GRCh38 / patched) | 58,600 / 59,257 / 59,257 | same |
+| Kept per run | ~164 MB (from 2–5 GB downloaded) | |
+
+::: {.callout-tip}
+## Following the samples — raw STAR counts (MAGE)
+
+**PWP2** (uniquely mapped read pairs):
+
+| Person | PWP2 genotype | T2T | GRCh38 | Patched GRCh38 |
+|---|---|---:|---:|---:|
+| HG00096 | A/A | 613 | **11** | 628 |
+| NA19717 | C/C | 828 | **313** | 851 |
+
+On GRCh38, HG00096 loses **98%** of his PWP2 reads; NA19717 loses **62%**. The loss depends on the genotype. That is exactly how a false eQTL is born: the measured expression tracks how many reads the false copy steals, and that depends on the person's alleles. The patch gives the reads back.
+
+The same in Geuvadis for HG00096 (a separate RNA sample): T2T 1,198, GRCh38 **7**, patched 1,240.
+
+**ASAH2 and its paralog ASAH2B:**
+
+| Person | Gene | T2T | GRCh38 | Patched |
+|---|---|---:|---:|---:|
+| HG00096 | ASAH2 | 6 | 24 | 24 |
+| | ASAH2B | 211 | 154 | 154 |
+| NA19717 | ASAH2 | 3 | 27 | 27 |
+| | ASAH2B | 157 | 115 | 115 |
+
+On T2T, reads move from ASAH2 to ASAH2B. GRCh38 and patched GRCh38 are identical here, because the patch does not touch chr10. This is what "outside the FixItFelix regions" looks like.
+:::
+
+## Merging runs into people {#sec-merge}
+
+`merge-expression.py` reads every completed run and writes, per reference, `star-counts`, `salmon-counts` and `salmon-tpm` (genes × people). People sequenced more than once get their runs **summed** (counts) or **averaged** (TPM). Example: MAGE's HG00130 has three runs with 5,172 + 6,679 + 2,632 U2AF1 reads = 14,483 in the matrix.
+
+## The tools: how STAR and salmon work {#sec-tools-04}
+
+Every run goes through the same two tools on each reference. STAR places reads on the genome and counts them per gene; salmon takes STAR's placements on transcripts and estimates expression a second, independent way.
+
+### STAR — placing reads on the genome
+
+**What it does.** STAR (version 2.7.11b) is a *spliced aligner*: it finds where each read pair came from in the genome. RNA reads are copies of spliced transcripts, so one read can start in exon 1 and finish in exon 2 thousands of bases later; STAR is built to find such split matches.
+
+**How it works, in short.**
+
+1. *Index* (built once in stage 02): the whole genome sorted into a searchable structure (a suffix array), so any short sequence can be looked up quickly.
+2. *Seed search*: for each read, STAR finds the longest stretch from the start that matches the genome exactly somewhere ("maximal mappable prefix"), then repeats from where the match stopped. A read crossing a splice junction naturally breaks into two seeds.
+3. *Stitching*: seeds that lie close and in order are joined into one alignment, allowing mismatches, small insertions/deletions and introns (gaps of 20 bp – 1 Mb here). Both mates are aligned together.
+4. *Scoring*: each candidate alignment gets a score. If one location scores best, the pair is **uniquely mapped**. If several locations tie, the pair is **multi-mapped** and every location is reported with `NH` = the number of locations.
+
+**The settings that matter for this study** (from `time-star.txt`):
+
+| Setting | Value | Meaning |
+|---|---|---|
+| `--outFilterMultimapNmax` | 20 | a pair fitting more than 20 places is dropped ("too many loci") |
+| `--outFilterMismatchNoverReadLmax` | 0.04 | at most 4% mismatches (12 for a 2 × 150 pair) |
+| `--alignIntronMin / Max` | 20 / 1,000,000 | what counts as an intron |
+| `--quantMode GeneCounts` | | count pairs per gene while aligning → `ReadsPerGene.out.tab` |
+| `--quantMode TranscriptomeSAM` | | also write the alignments in transcript coordinates → input for salmon |
+
+**How a pair becomes a gene count (`GeneCounts`).** Each pair lands in exactly one bin, checked in this order:
+
+1. not aligned → `N_unmapped`
+2. aligned to more than one place → `N_multimapping` (never given to any gene)
+3. overlaps no gene's exons (intron-only, between genes) → `N_noFeature`
+4. overlaps the exons of two or more genes → `N_ambiguous`
+5. otherwise → **+1 for that gene**
+
+The unit is the **pair** (one fragment), not the single read. For HG00096 the bins add up exactly to STAR's own total: 14,843,407 counted to genes + 2,557,200 no feature + 1,073,884 ambiguous = **18,474,491** = "Uniquely mapped reads number" in `Log.final.out`.
+
+::: {.callout-important}
+## Why step 2 is the heart of the study
+A pair that fits two places equally well is thrown away. If GRCh38 has a false copy of a gene (PWP2) or lacks a copy that exists in people (ASAH2B's region), reads become multi-mapped or land on the wrong copy. The gene count then reflects the *reference*, not only the biology. `N_multimapping` for HG00096: **377,268 on T2T vs 804,682 on GRCh38.**
+:::
+
+### salmon — sharing reads between transcripts
+
+**What it does.** salmon (version 1.11.4, *alignment mode*) estimates how much of each **transcript** is present. It reads STAR's transcript-coordinate alignments (`Aligned.toTranscriptome.out.bam`), so salmon does not align anything itself — it only decides how to share the reads out.
+
+**How it works.**
+
+1. For each fragment, salmon lists the transcripts it is compatible with (e.g. the three isoforms of one gene, or a gene and its paralog).
+2. It starts by assuming all transcripts are equally abundant.
+3. **Expectation–maximisation (EM)**: each fragment is split between its compatible transcripts in proportion to their current estimated abundance (and how well the fragment fits each). Adding the pieces gives new abundances. Repeat until nothing changes.
+4. It learns the library's fragment-length distribution and bias, and that the library is unstranded (`IU`, detected automatically from `libType A`).
+
+**Two differences from STAR's count that follow from this:**
+
+- **salmon keeps multi-mapped reads**, splitting them by likelihood, so its counts can be fractional (526.547) and can be *higher* than STAR's (LOC100288069: STAR 324, salmon 526.5).
+- A pair reaches salmon only if it fits a known transcript completely. Pairs running into an intron, and (STAR's default for this file) pairs with an insertion/deletion, are counted by STAR but never seen by salmon. So salmon can also be *lower* (PWP2: STAR 613, salmon 424).
+
+Both are used downstream: a reference effect that shows up with STAR's strict "unique only" rule **and** with salmon's "share by likelihood" rule cannot be a quirk of one counting method.
+
+## Why salmon gives both counts and TPM {#sec-tpm}
+
+They answer two different questions.
+
+| | `NumReads` (count) | `TPM` |
+|---|---|---|
+| Question | how many fragments came from this transcript? | what share of the transcript molecules is this one? |
+| Depends on sequencing depth | **yes** (twice the reads → twice the count) | no |
+| Depends on transcript length | **yes** (a long transcript yields more fragments) | no — corrected |
+| Sums to | the number of fragments salmon used (12.9 M for HG00096) | exactly 1,000,000 |
+| Comparable across genes in one person | no | **yes** |
+| Comparable across people | only after normalising for depth | roughly |
+
+**How TPM is computed**, with HG00096's PWP2:
+
+$$
+\text{rate}_t = \frac{\text{NumReads}_t}{\text{EffectiveLength}_t} = \frac{424}{2861.8} = 0.1482
+\qquad
+\text{TPM}_t = \frac{\text{rate}_t}{\sum_{u}\text{rate}_u}\times 10^6 = \frac{0.1482}{10{,}818.9}\times 10^6 = 13.69
+$$
+
+- **EffectiveLength** is the transcript length minus the stretch at the end where a fragment of typical size cannot start (3,188 → 2,861.8). Short transcripts lose proportionally more (283 → 65.7).
+- The sum runs over all 183,589 transcripts. 13.69 TPM means: of every million transcript molecules in HG00096's cells, about 14 are PWP2.
+
+**Why the pipeline needs both:**
+
+- The **expressed-gene filter** in stage 05 uses both: TPM ≥ 0.1 (enough molecules, length-fair) *and* ≥ 6 reads (enough data to measure) in ≥ 20% of people (GTEx rule).
+- The **normalisation** (TMM → CPM) must start from **counts**, because it estimates each person's library size from the counts themselves.
+- STAR gives only counts, so the TPM filter uses **salmon's TPM for both methods**; the counts come from STAR or salmon depending on the method.
+
+## The files, row by row {#sec-files-04}
+
+All examples: MAGE, T2T reference, HG00096's run SRR19762766, unless stated. "⋮" marks a jump from the first 10 rows to rows chosen for the cast (PWP2, ASAH2, ASAH2B).
+
+::: {.panel-tabset}
+
+### ReadsPerGene.out.tab
+
+`results/04-expression/mage/SRR19762766/chm13v2.0/ReadsPerGene.out.tab` — made by **STAR**, one per run and reference. No header; 4 summary lines then 42,471 genes in annotation order.
+
+::: {.wide}
+| gene (col 1) | unstranded (col 2) | strand 1 (col 3) | strand 2 (col 4) |
+|---|---|---|---|
+| N_unmapped | 1837059 | 1837059 | 1837059 |
+| N_multimapping | 377268 | 377268 | 377268 |
+| N_noFeature | 2557200 | 10196204 | 10234828 |
+| N_ambiguous | 1073884 | 264147 | 263356 |
+| LOC127239154 | 0 | 0 | 0 |
+| LOC124905685 | 0 | 0 | 0 |
+| LOC101928626 | 0 | 0 | 0 |
+| OR4F16 | 0 | 0 | 0 |
+| LOC100288069 | 324 | 153 | 173 |
+| LINC01409 | 34 | 21 | 15 |
+| FAM87B | 14 | 6 | 9 |
+| LINC00115 | 35 | 18 | 20 |
+| LINC01128 | 296 | 164 | 134 |
+| LOC107984850 | 0 | 0 | 0 |
+| ⋮ | ⋮ | ⋮ | ⋮ |
+| PWP2 | 613 | 291 | 322 |
+
+:::
+
+- **Column 1**: gene name (the annotation's `gene_id`; for this NCBI annotation that is the symbol).
+- **Column 2**: pairs counted ignoring strand — **the one we use**, because the libraries are unstranded.
+- **Columns 3 and 4**: the same pairs counted only if they lie on the gene's own strand (3) or the opposite one (4). For an unstranded library the two are about equal (PWP2: 291 vs 322), which is how unstrandedness was confirmed.
+- **The `N_` lines**: the bins described above. `N_noFeature` is much larger in columns 3–4 because, under a strand rule, half the reads land on "the wrong strand" of every gene.
+- Rows of 0 (`OR4F16`, an olfactory receptor) are genes not expressed in blood-derived cells.
+
+### quant.sf
+
+`.../SRR19762766/chm13v2.0/salmon/quant.sf` — made by **salmon**, one row per transcript (183,589).
+
+::: {.wide}
+| Name | Length | EffectiveLength | TPM | NumReads |
+|---|---|---|---|---|
+| NR_182076.1 | 5615 | 5288.822 | 0.000000 | 0.000 |
+| NR_182075.1 | 5829 | 5502.822 | 0.000000 | 0.000 |
+| NR_182074.1 | 5892 | 5565.822 | 0.000000 | 0.000 |
+| XR_007069731.1 | 283 | 65.720 | 0.000000 | 0.000 |
+| NR_125957.1 | 802 | 478.752 | 0.000000 | 0.000 |
+| NM_001005277.1 | 936 | 610.457 | 0.000000 | 0.000 |
+| NR_168328.1 | 7117 | 6790.822 | 7.166902 | 526.547 |
+| NR_187359.1 | 1505 | 1178.822 | 0.470457 | 6.000 |
+| NR_103536.1 | 1944 | 1617.822 | 0.421247 | 7.373 |
+| NR_024321.1 | 1317 | 990.822 | 2.612036 | 28.000 |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| NM_005049.3 | 3188 | 2861.822 | 13.694301 | 424.000 |
+
+:::
+
+- **Name**: transcript accession (`NM_` = curated mRNA, `NR_` = curated non-coding RNA, `XM_/XR_` = predicted).
+- **Length**: transcript length in bases. **EffectiveLength**: length corrected for the fragment-size distribution (see above).
+- **TPM**: share per million transcript molecules. **NumReads**: fragments assigned (fractional).
+- `NR_168328.1` (526.547 reads) is the transcript of `LOC100288069`; `NM_005049.3` is PWP2's only transcript.
+
+### mapping-summary.tsv
+
+`.../SRR19762766/mapping-summary.tsv` — made by the pipeline from STAR's `Log.final.out`, one row per reference.
+
+| run | sample | reference | input_pairs | unique_pct | multi_pct | too_many_pct | unmapped_short_pct | unmapped_other_pct |
+|---|---|---|---|---|---|---|---|---|
+| SRR19762766 | HG00096 | chm13v2.0 | 20688818 | 89.30 | 1.82 | 0.12 | 7.83 | 0.93 |
+| SRR19762766 | HG00096 | grch38 | 20688818 | 88.85 | 3.89 | 0.11 | 7.01 | 0.14 |
+| SRR19762766 | HG00096 | grch38-ffx | 20688818 | 88.88 | 3.86 | 0.11 | 7.01 | 0.15 |
+
+
+- `input_pairs`: fragments in; `unique_pct`: mapped to one place; `multi_pct`: 2–20 places; `too_many_pct`: > 20 places; `unmapped_short_pct`: alignment too short (mostly adapter/low quality); `unmapped_other_pct`: other reasons.
+- Multi-mapping is about **half** on T2T (1.82% vs 3.89%): T2T resolves many duplicated regions that GRCh38 collapses or duplicates falsely.
+
+### star-counts.tsv.gz
+
+`results/04-expression/mage/matrices/chm13v2.0/star-counts.tsv.gz` — made by **merge-expression.py**. Rows: the reference's 58,601 genes (`genes.tsv`); columns: 731 people (first 5 shown).
+
+::: {.wide}
+| gene_id | HG00096 | HG00100 | HG00105 | HG00108 | HG00110 |
+|---|---|---|---|---|---|
+| LOC127239154 | 0.0 | 0.0 | 0.0 | 1.0 | 0.0 |
+| LOC124905685 | 0.0 | 0.0 | 0.0 | 0.0 | 1.0 |
+| LOC101928626 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| OR4F16 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| SEPTIN14P14 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| CICP3 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| LOC100288069 | 324.0 | 54.0 | 201.0 | 223.0 | 800.0 |
+| RNU6-1199P | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| LINC01409 | 34.0 | 6.0 | 22.0 | 38.0 | 88.0 |
+| FAM87B | 14.0 | 9.0 | 21.0 | 21.0 | 51.0 |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| ASAH2 | 6.0 | 11.0 | 22.0 | 19.0 | 73.0 |
+| ASAH2B | 211.0 | 164.0 | 168.0 | 132.0 | 479.0 |
+| PWP2 | 613.0 | 724.0 | 888.0 | 663.0 | 2449.0 |
+
+:::
+
+- Each cell is column 2 of that person's `ReadsPerGene.out.tab` (summed over runs for the 24 people with three runs).
+- Rows follow `genes.tsv`, which also lists genes STAR's table does not (`SEPTIN14P14`, `CICP3`); they get 0.
+- The first rows are chr1's start: mostly lncRNAs (`LOC…`, `LINC…`); many are zero or low in these cells.
+
+### salmon-counts.tsv.gz
+
+Same layout; each cell = salmon `NumReads` of all the gene's transcripts added up (via `tx2gene.tsv`), summed over runs.
+
+::: {.wide}
+| gene_id | HG00096 | HG00100 | HG00105 | HG00108 | HG00110 |
+|---|---|---|---|---|---|
+| LOC127239154 | 0.0 | 0.0 | 1.0 | 1.054 | 4.606 |
+| LOC124905685 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| LOC101928626 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| OR4F16 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| SEPTIN14P14 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| CICP3 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| LOC100288069 | 526.547 | 83.624 | 265.077 | 377.936 | 1174.539 |
+| RNU6-1199P | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| LINC01409 | 6.0 | 0.0 | 2.0 | 5.0 | 12.106 |
+| FAM87B | 7.373 | 6.181 | 9.517 | 5.778 | 24.989 |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| ASAH2 | 4.882 | 5.774 | 20.575 | 24.938 | 70.083 |
+| ASAH2B | 236.119 | 168.226 | 188.425 | 154.061 | 533.918 |
+| PWP2 | 424.0 | 572.0 | 590.0 | 442.0 | 1734.0 |
+
+:::
+
+Compare with STAR: `LOC100288069` 324 (STAR) vs 526.547 (salmon) for HG00096 — salmon also uses the reads that STAR discarded as multi-mapped. `LINC01409` goes the other way (34 vs 6).
+
+### salmon-tpm.tsv.gz
+
+Same layout; each cell = TPM of the gene's transcripts added up, **averaged** over runs.
+
+::: {.wide}
+| gene_id | HG00096 | HG00100 | HG00105 | HG00108 | HG00110 |
+|---|---|---|---|---|---|
+| LOC127239154 | 0.0 | 0.0 | 0.014 | 0.018 | 0.023 |
+| LOC124905685 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| LOC101928626 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| OR4F16 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| SEPTIN14P14 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| CICP3 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| LOC100288069 | 7.167 | 1.042 | 2.849 | 4.995 | 4.119 |
+| RNU6-1199P | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| LINC01409 | 0.47 | 0.0 | 0.123 | 0.367 | 0.24 |
+| FAM87B | 0.421 | 0.323 | 0.427 | 0.313 | 0.363 |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| ASAH2 | 0.1 | 0.108 | 0.332 | 0.493 | 0.366 |
+| ASAH2B | 4.595 | 3.018 | 2.894 | 2.914 | 2.656 |
+| PWP2 | 13.694 | 16.914 | 15.018 | 13.719 | 14.181 |
+
+:::
+
+A gene's TPM is comparable across genes in one person: for HG00096, PWP2 is at ~13.7 TPM, GAPDH at ~10,300.
+
+### runs.tsv
+
+`.../matrices/runs.tsv` — one row per run in the samplesheet (selected columns).
+
+::: {.wide}
+| sample | run | cohort | batch | read_pairs | read_length | sex | ancestry | included | unique_pct_chm13v2.0 | unique_pct_grch38 | multi_pct_chm13v2.0 | multi_pct_grch38 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| NA19717 | SRR19762165 | mage | 1 | 21821518 | 150 | male | MXL (AMR) | True | 83.27 | 83.05 | 2.03 | 3.36 |
+| NA19711 | SRR19762166 | mage | 1 | 26229854 | 150 | male | ASW (AFR) | True | 85.08 | 84.84 | 2.1 | 3.89 |
+| NA19704 | SRR19762167 | mage | 1 | 30710015 | 150 | female | ASW (AFR) | True | 88.82 | 88.39 | 2.06 | 4.76 |
+| NA19713 | SRR19762168 | mage | 1 | 29042921 | 150 | female | ASW (AFR) | True | 85.3 | 84.83 | 2.17 | 4.93 |
+| NA19719 | SRR19762169 | mage | 1 | 22836260 | 150 | female | MXL (AMR) | True | 84.52 | 84.07 | 1.94 | 6.03 |
+| NA19682 | SRR19762170 | mage | 1 | 19956405 | 150 | male | MXL (AMR) | True | 80.16 | 79.72 | 2.19 | 5.91 |
+| NA19676 | SRR19762171 | mage | 1 | 46541747 | 150 | male | MXL (AMR) | True | 77.67 | 77.31 | 2.15 | 3.67 |
+| NA19332 | SRR19762172 | mage | 1 | 37499277 | 150 | female | LWK (AFR) | True | 85.96 | 85.6 | 2.43 | 3.53 |
+| NA19317 | SRR19762173 | mage | 1 | 26128458 | 150 | male | LWK (AFR) | True | 89.33 | 88.96 | 1.94 | 2.87 |
+| NA19312 | SRR19762174 | mage | 1 | 53708995 | 150 | male | LWK (AFR) | True | 86.6 | 86.25 | 1.99 | 2.79 |
+
+:::
+
+- `included`: whether the run went into the matrices. `batch`: the 60-run download batch.
+- `unique_pct_*` / `multi_pct_*`: copied from each run's `mapping-summary.tsv`, so mapping quality can be checked across the cohort in one file.
+
+:::
+
+# Stage 05 — eQTL mapping {#sec-eqtl}
+
+**Folder:** `scripts/05-eqtl/` · **Output:** `results/05-eqtl/<cohort>/<ref>/<method>/`
+
+This stage is run separately for each cohort × reference × method (STAR or salmon) × variant set (matched or all). The main analysis is **MAGE, STAR, matched variants, chr1–22**.
+
+## Genotypes → plink files
+
+`prepare-genotypes.sbatch` turns the stage-01 BCFs into plink2 `pgen` files for the cohort's people, MAF ≥ 1%, with variant IDs `chr:pos:ref:alt`. Two sets per reference:
+
+| Set | T2T | GRCh38 | Use |
+|---|---:|---:|---|
+| `.matched` — variants paired across references (@sec-matching) | 11.79 M | 11.79 M | **main analysis** |
+| `.all` | 13.51 M | 16.02 M | H1 (T2T-only variants) |
+
+*Why matched?* If a variant exists on one panel only, a gene can look different simply because its best variant is missing on the other side. Using the same variants on both sides removes that.
+
+## Expression → phenotypes
+
+`prepare-phenotypes.py` follows the GTEx recipe:
+
+1. **Keep chr1–22 and X genes**; drop rRNA; T2T names (`NC_060925.1`) → `chr1`.
+2. **Expressed filter**: TPM ≥ 0.1 **and** ≥ 6 reads in ≥ 20% of people. Applied per reference, so a gene can be tested on one reference and not another — itself a reference effect.
+3. **TMM normalisation → CPM**: corrects for library size and composition.
+4. **Inverse-normal transform** per gene: ranks → normal quantiles. Each gene ends up with mean 0 and SD 1, so outliers cannot drive an eQTL and **slopes are in SD units**.
+5. **Position** = the gene's transcription start site on that reference (its start on + strand, its end on − strand).
+
+| MAGE, STAR | T2T | GRCh38 | Patched |
+|---|---:|---:|---:|
+| Expressed genes | 17,160 | 17,580 | 17,573 |
+| Tested on chr1–22 | 16,605 | 17,026 | 17,021 |
+
+::: {.callout-tip}
+## Following the samples — normalised phenotypes (MAGE, STAR)
+
+| | T2T | GRCh38 | Patched |
+|---|---:|---:|---:|
+| PWP2, HG00096 | −1.00 | **−1.79** | −1.20 |
+| PWP2, NA19717 | +0.43 | **+1.51** | +0.51 |
+| ASAH2, HG00096 | −0.53 | +0.71 | +0.62 |
+| ASAH2, NA19717 | −1.25 | +1.09 | +1.11 |
+
+Read them as "how many SDs above or below the cohort average". On GRCh38 the two men are pushed far apart for PWP2 (−1.79 vs +1.51), because one lost almost all reads and the other did not. On T2T their difference is modest.
+:::
+
+## Covariates
+
+`make-covariates.py` builds, per reference and method, 66 covariates:
+
+| Covariate | Number | Why | Same on all references? |
+|---|---:|---|---|
+| Genotype PCs | 5 | ancestry (MAGE has 26 populations) | **yes** — computed once from LD-pruned matched T2T SNPs |
+| Sex | 1 | | yes |
+| Expression PCs | 60 | hidden technical and biological factors (GTEx rule for n ≥ 350) | no — from each reference's own expression |
+
+::: {.callout-note}
+## Why genotype PCs are shared
+If each reference computed its own ancestry PCs, they would differ slightly, and so would every eQTL — for a reason unrelated to read placement. Sharing them removes that source of difference.
+:::
+
+::: {.callout-tip}
+## Following the samples — covariates
+HG00096: geno_PC1 −0.021, PC2 +0.051; NA19717: PC1 −0.022, PC3 +0.079 (the MXL ancestry shows on PC3). Both have sex = 1 (male). HG00096's first expression PC is about −81 on all three references, NA19717's about +8–10.
+:::
+
+## Mapping with tensorQTL
+
+For every gene, every variant within **±1 Mb** of its TSS is tested with linear regression:
+
+$$
+\text{expression}_i = \beta \cdot \text{genotype}_i + \sum_k \gamma_k \,\text{covariate}_{ik} + \varepsilon_i
+$$
+
+- genotype = 0, 1 or 2 copies of the ALT allele;
+- **β (the slope)** = change in expression, in SD, per ALT allele;
+- run per chromosome as Slurm array tasks.
+
+Two passes:
+
+| Pass | Question | Output |
+|---|---|---|
+| `map_cis` (permutations) | Is this gene an **eGene** at all, after testing thousands of variants? | lead variant per gene, permutation p (beta approximation, 10,000 permutations), q-value (Storey) |
+| `map_nominal` | What is the effect of *every* variant on this gene? | slope, se, p for every gene–variant pair — needed by stage 06 to look up any variant |
+
+**eGene** = q < 0.05.
+
+| MAGE, STAR, matched | T2T | GRCh38 | Patched |
+|---|---:|---:|---:|
+| eGenes | 15,013 | 15,259 | 15,224 |
+
+The MAGE paper reports about 15,000 eGenes, so the pipeline behaves as expected.
+
+::: {.callout-tip}
+## Following the samples — the eQTL results
+
+| Gene | Reference | Lead variant | Slope | q |
+|---|---|---|---:|---:|
+| PWP2 | T2T | chr21:42445383 A>C | +0.29 | 5×10⁻³⁴ |
+| | GRCh38 | chr21:44089769 A>C | **+1.16** | **2×10⁻²¹⁰** |
+| | Patched | chr21:44089769 A>C | +0.28 | 2×10⁻³² |
+| ASAH2 | T2T | chr10:51633608 A>C | +0.77 | 4×10⁻⁵⁵ |
+| | GRCh38 | chr10:50728240 A>C | +0.85 | 5×10⁻⁷¹ |
+| | Patched | chr10:50728240 A>C | +0.85 | 2×10⁻⁷¹ |
+
+PWP2 is an eGene **everywhere**, but four times too strong on GRCh38. A simple "eGene yes/no" comparison would miss it — that is why stage 06 compares slopes, not eGene lists.
+:::
+
+## Seeing an eQTL: expression by genotype
+
+The clearest way to see what tensorQTL measures is the median expression (CPM) in each genotype group:
+
+::: {.panel-tabset}
+### PWP2 (positive control)
+
+| Copies of `C` at chr21 lead | People | T2T | GRCh38 | Patched |
+|---:|---:|---:|---:|---:|
+| 0 (e.g. HG00096) | 288 | 46.4 | **1.3** | 48.4 |
+| 1 | 303 | 50.0 | **10.2** | 52.1 |
+| 2 (e.g. NA19717) | 140 | 50.8 | **18.0** | 52.8 |
+
+On T2T and the patched reference, PWP2 rises gently with each `C` (a real, modest eQTL). On GRCh38, people with no `C` lose almost everything to the false chr21 copy, so the effect looks enormous.
+
+### ASAH2 (reversed eQTL)
+
+At the T2T variant chr10:51633608 A>C:
+
+| Copies of `C` | People | ASAH2 T2T | ASAH2 GRCh38 / patched | ASAH2B T2T | ASAH2B GRCh38 / patched |
+|---:|---:|---:|---:|---:|---:|
+| 0 | 119 | 0.21 | **1.57** | 8.32 | 5.87 |
+| 1 | 293 | 0.48 | **1.24** | 8.42 | 6.91 |
+| 2 | 319 | 0.90 | **0.70** | 7.75 | 8.26 |
+
+The same variant **raises** ASAH2 on T2T and **lowers** it on GRCh38. On GRCh38, the reads that the `C` allele takes from ASAH2 turn up in ASAH2B. The direction of the eQTL depends on the reference.
+:::
+
+![The same people and variant, a different answer. Left: PWP2 (FixItFelix artefact). Middle: CCZ1, a reversal like ASAH2. Right: SMN2. From `results/07-presentation/figures/`.](../../results/07-presentation/figures/fig11-eqtl-examples.png){#fig-examples}
+
+## Testing the pipeline before trusting it
+
+`make-simulated-cohort.py` built a fake cohort (`simtest`): 300 real MAGE people with their real chr22 genotypes, simulated expression, and **60 planted eQTLs**. The pipeline found 43 of 60, had an observed FDR of 4.4% (target 5%), null p-values were calibrated (5.6% below 0.05), and the effect direction was right 98% of the time. Two bugs were found and fixed this way.
+
+## The tools: how plink2, the phenotype recipe and tensorQTL work {#sec-tools-05}
+
+### plink2 — genotypes in a fast binary format
+
+**What it does.** plink2 converts the stage-01 BCF files into the `pgen` format tensorQTL reads, keeps only this cohort's 731 people and variants with MAF ≥ 1%, and computes the genotype PCs.
+
+- A plink2 *fileset* is three files with one name: `.pgen` (the genotypes, compressed binary — one 0/1/2 per person per variant), `.pvar` (the variants, text) and `.psam` (the people, text).
+- **Genotype PCs** (`make-covariates.py`): plink2 takes T2T matched SNPs with MAF ≥ 5% on chr1–22, prunes them so no two within 200 kb are correlated (r² > 0.2) — leaving 242,829 SNPs — and runs a principal component analysis. PC1–PC5 summarise each person's ancestry as five numbers.
+
+### The phenotype recipe — from counts to a clean number per gene
+
+Implemented in `prepare-phenotypes.py` with the GTEx/tensorQTL helper functions (`qtl.norm`).
+
+1. **Filter** (per reference): TPM ≥ 0.1 and ≥ 6 counts in ≥ 20% of people.
+2. **TMM** (trimmed mean of M-values, from edgeR): each person's library size is adjusted so that the *typical* gene has the same expression in everyone. A few very busy genes (or a gene soaking up reads from a false copy) cannot then distort everyone else's values.
+3. **CPM** = count ÷ adjusted library size × 10⁶.
+4. **Inverse-normal transform** per gene: rank the 731 people from lowest to highest CPM, then replace each rank with the value a standard normal distribution would have at that rank. The lowest person gets about −3, the median 0, the highest about +3.
+   *Why*: the regression assumes bell-shaped noise; a few extreme people would otherwise drive the result. After the transform, every gene has mean 0 and SD 1, so a **slope of 0.3 means 0.3 SD per allele** on every gene and every reference.
+5. **Position** = TSS on this reference: tensorQTL tests variants within ±1 Mb of it.
+
+**Expression PCs** (`make-covariates.py`): a principal component analysis of the phenotype matrix itself. The top components capture whatever moves *many* genes at once — batch, RNA quality, cell growth state, sex, ancestry. 60 are used (GTEx rule for ≥ 350 people). Removing them makes the gene-specific genetic effects stand out.
+
+### tensorQTL — testing every variant against every nearby gene
+
+**What it does.** tensorQTL (run in `run-tensorqtl.py`, per chromosome) fits, for each gene and each variant within ±1 Mb of its TSS:
+
+$$
+\text{expression}_i = \beta \cdot \text{genotype}_i + \sum_{k=1}^{66} \gamma_k \,\text{covariate}_{ik} + \varepsilon_i
+$$
+
+It does this fast by matrix algebra on the whole cohort at once (originally written for GPUs):
+
+1. **Residualise**: remove the 66 covariates from the expression and from every genotype (linear regression). What is left is variation the covariates cannot explain.
+2. **Correlate**: the correlation r between residual genotype and residual expression gives the slope β (= r × SD ratio), its standard error, and a t-test p-value with 731 − 2 − 66 = 663 degrees of freedom. This is the **nominal p**.
+3. **The multiple-testing problem**: a gene has ~3,000–6,000 nearby variants, so the best nominal p will be small even with no real eQTL. `map_cis` solves this per gene with **permutations**: shuffle the expression values among people (breaking any real link to genotype), redo all tests, keep the best p; repeat 10,000 times. This gives the distribution of "the best p by chance" for *this* gene, with its own number of variants and LD.
+4. **Beta approximation**: 10,000 permutations can only show p down to 1/10,001 ≈ 10⁻⁴. The best-p distribution is fitted with a beta distribution (`beta_shape1`, `beta_shape2`), which can be extrapolated to tiny p — this is `pval_beta`.
+5. **Across genes**: Storey's q-value over all genes' `pval_beta` controls the false discovery rate. **eGene = q < 0.05**.
+6. `map_nominal` then writes β, se and p for **every** gene–variant pair (no permutation), so stage 06 can look up any variant for any gene.
+
+## The files, row by row {#sec-files-05}
+
+All examples: MAGE, T2T reference, STAR method, matched variants.
+
+::: {.panel-tabset}
+
+### .pvar (variants)
+
+`results/05-eqtl/mage/genotypes/t2t.matched.pvar` — 11.79 M rows (after a few `##` header lines). Rows are in file order, which here starts with chr10.
+
+| #CHROM | POS | ID | REF | ALT |
+|---|---|---|---|---|
+| chr10 | 41447 | chr10:41447:T:C | T | C |
+| chr10 | 41562 | chr10:41562:C:A | C | A |
+| chr10 | 42269 | chr10:42269:C:G | C | G |
+| chr10 | 42282 | chr10:42282:T:C | T | C |
+| chr10 | 42374 | chr10:42374:A:G | A | G |
+| chr10 | 42403 | chr10:42403:AGCTCAGGTGTCCTT:A | AGCTCAGGTGTCCTT | A |
+| chr10 | 42450 | chr10:42450:CA:C | CA | C |
+| chr10 | 42684 | chr10:42684:G:C | G | C |
+| chr10 | 42866 | chr10:42866:C:T | C | T |
+| chr10 | 44690 | chr10:44690:T:TCTC | T | TCTC |
+
+
+- `ID` = `chr:pos:REF:ALT`, the variant name used in every later file.
+- `REF` = the base(s) of the reference genome; `ALT` = the alternative. Genotype 0/1/2 = copies of **ALT**, so every slope is "per ALT allele".
+- Indels: `CA → C` is a 1-bp deletion; `T → TCTC` a 3-bp insertion.
+
+### .psam (people)
+
+`.../genotypes/t2t.matched.psam` — 731 rows. `SEX`: 1 = male, 2 = female (plink coding).
+
+| #IID | SEX |
+|---|---|
+| HG00096 | 1 |
+| HG00100 | 2 |
+| HG00105 | 1 |
+| HG00108 | 1 |
+| HG00110 | 2 |
+| HG00113 | 1 |
+| HG00114 | 1 |
+| HG00121 | 2 |
+| HG00122 | 2 |
+| HG00127 | 2 |
+
+
+### genotype-pcs.eigenvec
+
+`.../genotypes/genotype-pcs.eigenvec` — one row per person, the 5 ancestry PCs. Shared by all three references.
+
+| #IID | PC1 | PC2 | PC3 | PC4 | PC5 |
+|---|---|---|---|---|---|
+| HG00096 | -0.0206332 | 0.0511828 | 0.00509493 | 0.0402456 | 0.00350252 |
+| HG00100 | -0.0205805 | 0.0510645 | 0.00468543 | 0.0396701 | 0.00120577 |
+| HG00105 | -0.0208251 | 0.0496964 | 0.00508787 | 0.0406394 | 0.00132885 |
+| HG00108 | -0.0204994 | 0.0502213 | 0.00469814 | 0.0409264 | 0.00536804 |
+| HG00110 | -0.0208688 | 0.0504097 | 0.00516031 | 0.0392189 | 0.00419405 |
+| HG00113 | -0.0209966 | 0.0503749 | 0.00467656 | 0.0413613 | 0.00214611 |
+| HG00114 | -0.0207524 | 0.0498143 | 0.0039205 | 0.0418168 | 0.00238024 |
+| HG00121 | -0.0209735 | 0.0506203 | 0.00381264 | 0.0397918 | 0.00489678 |
+| HG00122 | -0.0212333 | 0.0506198 | 0.00637382 | 0.0399467 | 0.00182963 |
+| HG00127 | -0.020928 | 0.0510934 | 0.00457363 | 0.0403825 | 0.00243074 |
+
+
+People of the same population have similar values; HG00096 and HG00100 (both British, GBR) are almost identical here.
+
+### phenotypes.bed.gz
+
+`results/05-eqtl/mage/chm13v2.0/star/phenotypes.bed.gz` — the input to tensorQTL. One row per expressed gene (17,160), 4 position columns then 731 people (first 5 shown).
+
+::: {.wide}
+| #chr | start | end | phenotype_id | HG00096 | HG00100 | HG00105 | HG00108 | HG00110 |
+|---|---|---|---|---|---|---|---|---|
+| chr1 | 205170 | 205171 | LOC100288069 | 1.724 | -1.724 | -0.25618 | 0.40829 | 0.59899 |
+| chr1 | 205334 | 205335 | LINC01409 | 1.0121 | -1.788 | -0.57055 | 1.059 | 0.11325 |
+| chr1 | 246377 | 246378 | FAM87B | -0.09947 | -1.1019 | 0.56251 | 0.86329 | -0.082277 |
+| chr1 | 256493 | 256494 | LINC00115 | 0.24205 | -0.75861 | -0.74951 | -0.065109 | 0.39345 |
+| chr1 | 256562 | 256563 | LINC01128 | 0.017123 | 0.013698 | 0.041104 | -1.0179 | -0.7863 |
+| chr1 | 334800 | 334801 | LOC124905686 | 1.0353 | -0.84357 | 1.0771 | -0.49554 | 0.023973 |
+| chr1 | 349335 | 349336 | LINC02593 | 1.429 | -1.5953 | -0.020548 | -0.56652 | 0.60309 |
+| chr1 | 353565 | 353566 | SAMD11 | 0.73597 | -1.88 | 1.6139 | -0.41202 | 0.29173 |
+| chr1 | 388040 | 388041 | NOC2L | -1.5772 | 1.2677 | 0.72257 | -1.245 | 0.013698 |
+| chr1 | 389373 | 389374 | KLHL17 | 0.10291 | -1.5892 | 0.64048 | -0.56251 | 0.64891 |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| chr10 | 51099699 | 51099700 | ASAH2 | -0.5307 | 0.35306 | 1.0894 | 1.0121 | 1.2677 |
+| chr10 | 51588515 | 51588516 | ASAH2B | 2.7783 | 1.7713 | 0.56251 | -0.14086 | 0.33127 |
+| chr21 | 42463008 | 42463009 | PWP2 | -1.0008 | 0.068541 | -0.16165 | -1.0294 | -0.48011 |
+
+:::
+
+- `#chr start end`: a 1-bp interval at the gene's **TSS** (BED is 0-based, so `start` = TSS − 1). `LOC100288069` is on the − strand, so its TSS is its *end* (205,171 in `genes-tested.tsv`).
+- Each cell: the normalised expression in SD units. HG00096 is +1.72 for `LOC100288069` — high (his 324 STAR counts are well above most people's); HG00100 is −1.72.
+- Note the T2T chromosome names are already `chr1`, matching the `.pvar`.
+
+### covariates.tsv
+
+`.../chm13v2.0/star/covariates.tsv` — one row per covariate (66), one column per person (first 5 shown).
+
+::: {.wide}
+| covariate | HG00096 | HG00100 | HG00105 | HG00108 | HG00110 |
+|---|---|---|---|---|---|
+| geno_PC1 | -0.0206332 | -0.0205805 | -0.0208251 | -0.0204994 | -0.0208688 |
+| geno_PC2 | 0.0511828 | 0.0510645 | 0.0496964 | 0.0502213 | 0.0504097 |
+| geno_PC3 | 0.00509493 | 0.00468543 | 0.00508787 | 0.00469814 | 0.00516031 |
+| geno_PC4 | 0.0402456 | 0.0396701 | 0.0406394 | 0.0409264 | 0.0392189 |
+| geno_PC5 | 0.00350252 | 0.00120577 | 0.00132885 | 0.00536804 | 0.00419405 |
+| sex | 1 | 0 | 1 | 1 | 0 |
+| expr_PC1 | -81.0026 | 74.1119 | 10.6107 | 1.73328 | -8.06358 |
+| expr_PC2 | -31.2961 | -53.5497 | -6.35959 | 11.1576 | -12.1942 |
+| expr_PC3 | -10.2632 | -32.9511 | -48.0772 | 27.8572 | -28.7735 |
+| expr_PC4 | -20.7427 | -26.3923 | 29.7581 | -28.0989 | -17.8139 |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| expr_PC60 | 3.56917 | 2.10461 | 1.16587 | 0.397508 | 0.26296 |
+
+:::
+
+- `geno_PC1–5`: copied from the eigenvec (identical on every reference).
+- `sex`: 1 = male, 0 = female (a 0/1 covariate, unlike the psam's 1/2).
+- `expr_PC1–60`: this reference's own expression PCs. HG00096's PC1 of −81 is among the lowest 6% of the cohort (range −123 to +138): something about his RNA sample shifts many genes at once, and the model removes it.
+
+### genes-tested.tsv
+
+`.../chm13v2.0/star/genes-tested.tsv` — the expressed genes with their NCBI GeneID and coordinates on this reference. `gene_ncbi` is the key that links the same gene across references in stage 06.
+
+::: {.wide}
+| gene_id | gene_ncbi | symbol | chr | start | end | strand |
+|---|---|---|---|---|---|---|
+| LOC100288069 | 100288069 | LOC100288069 | chr1 | 152269 | 205171 | - |
+| LINC01409 | 105378580 | LINC01409 | chr1 | 205335 | 238971 | + |
+| FAM87B | 400728 | FAM87B | chr1 | 246378 | 248841 | + |
+| LINC00115 | 79854 | LINC00115 | chr1 | 255178 | 256494 | - |
+| LINC01128 | 643837 | LINC01128 | chr1 | 256563 | 288416 | + |
+| LOC124905686 | 124905686 | LOC124905686 | chr1 | 334801 | 338527 | + |
+| LINC02593 | 100130417 | LINC02593 | chr1 | 346462 | 349336 | - |
+| SAMD11 | 148398 | SAMD11 | chr1 | 353566 | 373316 | + |
+| NOC2L | 26155 | NOC2L | chr1 | 372945 | 388041 | - |
+| KLHL17 | 339451 | KLHL17 | chr1 | 389374 | 394430 | + |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| ASAH2 | 56624 | ASAH2 | chr10 | 51033047 | 51099700 | - |
+| ASAH2B | 653308 | ASAH2B | chr10 | 51588516 | 51607827 | + |
+| PWP2 | 5822 | PWP2 | chr21 | 42463009 | 42486796 | + |
+
+:::
+
+### cis-eqtl.tsv.gz (map_cis)
+
+`.../chm13v2.0/star/matched/cis-eqtl.tsv.gz` — **one row per gene** (16,605 on chr1–22): its best variant and whether it is an eGene.
+
+::: {.wide}
+| phenotype_id | num_var | beta_shape1 | beta_shape2 | true_df | pval_true_df | variant_id | start_distance | end_distance | ma_samples | ma_count | af | pval_nominal | slope | slope_se | pval_perm | pval_beta | qval | pval_nominal_threshold |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| LOC100288069 | 3491 | 1.07348 | 617.261 | 571.25 | 1.18693e-41 | chr1:215354:G:A | 10183 | 10183 | 117 | 141 | 0.0964432 | 4.58712e-48 | -0.712686 | 0.0450488 | 9.999e-05 | 1.1186e-41 | 1.26547e-41 | 0.00104656 |
+| LINC01409 | 3491 | 1.0436 | 660.186 | 580.78 | 3.07774e-22 | chr1:204288:A:AT | -1047 | -1047 | 31 | 31 | 0.0212038 | 3.68454e-25 | 1.18886 | 0.110074 | 9.999e-05 | 3.05266e-20 | 1.52419e-20 | 0.000938518 |
+| FAM87B | 3601 | 1.04655 | 634.383 | 574.595 | 1.58617e-23 | chr1:204288:A:AT | -42090 | -42090 | 31 | 31 | 0.0212038 | 6.7395e-27 | 1.76769 | 0.157451 | 9.999e-05 | 1.15609e-21 | 6.20349e-22 | 0.000980777 |
+| LINC00115 | 3622 | 1.04504 | 666.631 | 579.722 | 5.71506e-24 | chr1:254504:C:T | -1990 | -1990 | 316 | 385 | 0.736662 | 3.51339e-27 | -0.395143 | 0.0349829 | 9.999e-05 | 4.49439e-22 | 2.46288e-22 | 0.000931356 |
+| LINC01128 | 3622 | 1.0555 | 597.822 | 567.813 | 2.55177e-11 | chr1:343102:G:C | 86539 | 86539 | 24 | 24 | 0.0164159 | 5.667e-13 | 0.829943 | 0.112845 | 9.999e-05 | 5.48254e-09 | 1.44454e-09 | 0.00105395 |
+| LOC124905686 | 3828 | 1.04544 | 652.63 | 576.087 | 3.49121e-12 | chr1:335334:C:T | 533 | 533 | 526 | 687 | 0.530096 | 8.44927e-14 | -0.280281 | 0.0367552 | 9.999e-05 | 9.04386e-10 | 2.51357e-10 | 0.000951868 |
+| LINC02593 | 3867 | 1.03536 | 730.579 | 588.703 | 1.4584e-08 | chr1:332856:G:GC | -16480 | -16480 | 230 | 258 | 0.176471 | 1.81433e-09 | 0.278128 | 0.0456029 | 9.999e-05 | 6.99903e-06 | 1.46594e-06 | 0.000838177 |
+| SAMD11 | 3891 | 1.05374 | 658.328 | 574.313 | 0.00127306 | chr1:667340:G:A | 313774 | 313774 | 123 | 131 | 0.0896033 | 0.000536113 | 0.245787 | 0.0706476 | 0.548245 | 0.543002 | 0.0599792 | 0.000954773 |
+| NOC2L | 4048 | 1.04174 | 661.939 | 573.677 | 4.85188e-13 | chr1:369864:G:A | -18177 | -18177 | 123 | 128 | 0.0875513 | 7.70735e-15 | 0.239358 | 0.0300858 | 9.999e-05 | 1.26642e-10 | 3.72275e-11 | 0.000933553 |
+| KLHL17 | 4053 | 1.04865 | 693.615 | 577.078 | 2.44479e-40 | chr1:394890:A:G | 5516 | 5516 | 360 | 518 | 0.354309 | 4.34506e-46 | -0.36487 | 0.023657 | 9.999e-05 | 2.6989e-39 | 2.80364e-39 | 0.000899738 |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| ASAH2 | 7161 | 1.0338 | 866.459 | 588.622 | 1.64921e-56 | chr10:51633608:A:C | 533908 | 533908 | 412 | 531 | 0.636799 | 2.0023e-63 | 0.770741 | 0.041037 | 9.999e-05 | 2.30329e-55 | 3.95322e-55 | 0.000705193 |
+| ASAH2B | 7335 | 1.05733 | 798.12 | 568.564 | 2.3666e-18 | chr10:51648509:A:G | 59993 | 59993 | 191 | 230 | 0.157319 | 3.84668e-21 | -0.444492 | 0.0455118 | 9.999e-05 | 2.63732e-16 | 1.08672e-16 | 0.000791592 |
+| PWP2 | 8609 | 1.04655 | 1580.31 | 594.965 | 1.05702e-35 | chr21:42445383:A:C | -17626 | -17626 | 443 | 583 | 0.398769 | 1.3644e-39 | 0.28698 | 0.020379 | 9.999e-05 | 5.43063e-34 | 4.7247e-34 | 0.000393837 |
+
+:::
+
+| Column | Meaning |
+|---|---|
+| `num_var` | variants tested within ±1 Mb |
+| `beta_shape1/2` | the beta distribution fitted to the 10,000 permutation best-p's |
+| `true_df`, `pval_true_df` | effective degrees of freedom fitted from the permutations, and the lead's p recomputed with them |
+| `variant_id` | the **lead variant** (lowest nominal p) |
+| `start_distance` | lead position − TSS (−1,047 = 1 kb upstream on the + strand) |
+| `ma_samples`, `ma_count`, `af` | people carrying the minor allele, minor-allele copies, ALT allele frequency |
+| `pval_nominal`, `slope`, `slope_se` | the lead's ordinary regression result; slope in SD per ALT allele |
+| `pval_perm` | fraction of permutations beating the real p; 9.999×10⁻⁵ = 1/10,001 = none did |
+| `pval_beta` | the permutation p extrapolated with the beta fit — **the gene-level p** |
+| `qval` | Storey q-value across genes; **< 0.05 → eGene** |
+| `pval_nominal_threshold` | the nominal p a variant of this gene needs to be significant at the genome-wide FDR (used to call further significant variants) |
+
+Reading three rows:
+
+- `LOC100288069`: lead `chr1:215354:G:A`, 10 kb from the TSS (`start_distance` +10,183, in genome coordinates); each `A` lowers expression by 0.71 SD; q = 10⁻⁴¹ → strong eGene.
+- `SAMD11`: best nominal p 5×10⁻⁴, but 55% of shuffles did as well (`pval_perm` 0.548) → q = 0.06 → **not** an eGene. This is exactly what permutations are for: with 3,891 variants, p = 5×10⁻⁴ is expected by chance.
+- `PWP2`: +0.29 SD per `C`, q = 5×10⁻³⁴.
+
+### nominal/*.parquet (map_nominal)
+
+`.../chm13v2.0/star/matched/nominal/chr1.cis_qtl_pairs.chr1.parquet` — **every gene × variant pair** (12.1 M rows for chr1 alone). Parquet is a compressed column format; read with pandas.
+
+::: {.wide}
+| phenotype_id | variant_id | start_distance | af | ma_samples | ma_count | pval_nominal | slope | slope_se |
+|---|---|---|---|---|---|---|---|---|
+| LOC100288069 | chr1:159524:AG:A | -45647 | 0.012311902 | 17 | 18 | 0.8021897452622319 | 0.032544613 | 0.12985921 |
+| LOC100288069 | chr1:192280:CA:CAA | -12891 | 0.08139535 | 114 | 119 | 0.7766476696436522 | -0.015840584 | 0.055814836 |
+| LOC100288069 | chr1:192936:GAATA:G | -12235 | 0.02120383 | 29 | 31 | 0.6480181090813882 | 0.045480344 | 0.099579215 |
+| LOC100288069 | chr1:195754:A:AAAAAAC | -9417 | 0.010259918 | 15 | 15 | 0.15612907481284108 | -0.21296869 | 0.1499966 |
+| LOC100288069 | chr1:197039:G:A | -8132 | 0.035567716 | 49 | 52 | 0.2998182337846968 | -0.082223214 | 0.07924097 |
+| LOC100288069 | chr1:197487:A:AG | -7684 | 0.023939809 | 31 | 35 | 0.7108863693159888 | 0.03329756 | 0.089793205 |
+| LOC100288069 | chr1:197525:A:G | -7646 | 0.2735978 | 322 | 400 | 0.0011395511672662477 | -0.11674091 | 0.035723913 |
+| LOC100288069 | chr1:201846:CAAA:CAAAA | -3325 | 0.04103967 | 58 | 60 | 1.361218511107234e-06 | -0.37742245 | 0.077415496 |
+| LOC100288069 | chr1:203672:T:C | -1499 | 0.01504788 | 22 | 22 | 0.30873862839558963 | -0.12112487 | 0.11890674 |
+| LOC100288069 | chr1:203672:T:TC | -1499 | 0.11833105 | 147 | 173 | 8.793930448038137e-33 | -0.54591733 | 0.043330703 |
+
+:::
+
+- These are the first 10 of the 3,491 variants tested for `LOC100288069`. Most have nothing (p 0.3–0.8); `chr1:203672:T:TC` already has p = 9×10⁻³³.
+- Stage 06 reads these files to get the slope of *any* variant — e.g. the slope at the other reference's lead variant.
+
+:::
+
+# Stage 06 — Comparing references {#sec-compare}
+
+**Folder:** `scripts/06-compare/` · **Output:** `results/06-compare/`
+
+Stage 06 is a **funnel**: from about 15,000 eGenes to a short list of genes whose eQTL really changes, each with a mechanism. Two pieces of preparation come first.
+
+```{mermaid}
+flowchart TD
+  A["~15,000 eGenes per reference<br/>(MAGE, STAR, matched variants)"] --> B["Genes tested on both references<br/>matched by NCBI GeneID"]
+  B --> C["Same-variant slopes<br/>allele sign from genotype correlation"]
+  C --> D["Paired test of the difference<br/>Bonferroni"]
+  D --> E["STAR and salmon agree,<br/>same sign, no artefact flag"]
+  E --> F["|Δ| ≥ 0.1 SD under both"]
+  F --> G["main: 117 genes<br/>core (old test): 57<br/>extent (no floor): 255"]
+  G --> H["Mechanisms: read destination,<br/>reversals, copy number"]
+  G --> I["Replication in Geuvadis<br/>(358 independent people)"]
+  G --> J["GWAS: lookup, coloc, SuSiE-coloc"]
+```
+
+## Preparation 1: pairing variants across references {#sec-matching}
+
+**Script:** `match-variants.py` · **Output:** `results/06-compare/variant-matching/<chr>.tsv.gz`
+
+T2T and GRCh38 use different coordinates. To compare "the same variant", each T2T variant is converted to GRCh38 with UCSC's chain file and paired with a GRCh38 variant at that position with the same alleles (or swapped alleles, because the two references carry different bases at ~20% of common sites). Liftover is used **only** here, and only to pair variants called independently on each reference.
+
+A pair must also have nearly the **same allele frequency** (within 0.02): it is the same people from the same reads, so a true pair agrees. A pair whose frequencies disagree usually means a paralogous position.
+
+| T2T variants (MAF ≥ 1%, 1,089 people) | SNPs | Indels |
+|---|---:|---:|
+| matched | 10.68 M | 1.96 M |
+| matched but MAF disagrees (paralogous; kept for H4) | 25.9 k | 102.5 k |
+| T2T-only sequence (no liftover) | 35.5 k | 54.7 k |
+| GRCh38 variants with no T2T partner | 2.34 M | 1.41 M |
+
+::: {.callout-note}
+## Why so many GRCh38 variants have no T2T partner
+A probe of the raw (pre-panel) T2T calls showed that most were called on T2T but **dropped when the phased T2T panel was built** — a pipeline difference, not a reference effect. About 5% look like GRCh38 artefacts (paralogous variants with extreme excess heterozygosity, H4b). This is why the main analysis uses matched variants only.
+:::
+
+::: {.callout-tip}
+## Following the samples — variant pairs
+| T2T | GRCh38 | Pairing | MAF T2T / GRCh38 |
+|---|---|---|---|
+| chr21:42445383 A>C (PWP2) | chr21:44089769 A>C | same alleles | 0.3719 / 0.3719 |
+| chr10:51633608 A>C (ASAH2) | chr10:50785045 C>A | **swapped** | 0.3733 / 0.3724 |
+
+For ASAH2 the two references have different bases at this position, so T2T's ALT is GRCh38's REF. A slope per `C` on T2T is a slope per `A` on GRCh38; one sign must be flipped before comparing.
+:::
+
+## Preparation 2: labelling every gene
+
+`make-gene-classes.py` gives each GeneID one **region class** (first that applies):
+
+| Class | Meaning | Genes |
+|---|---|---:|
+| `ffx_patched` | in a FixItFelix region | 156 |
+| `t2t_new_sequence` | ≥ 50% in sequence GRCh38 lacks | 2,798 |
+| `sd` | ≥ 50% in high-identity (≥ 98%) segmental duplications | 3,050 |
+| `other` | the rest | 56,377 |
+
+…and **artefact flags**: MHC/HLA (haplotype differences), PAR, chrM, rRNA, and annotation-overlap differences (`compare-annotation-overlaps.sh`: 2,026 genes whose overlapping neighbours differ between references). Flagged genes are reported but excluded from the H0 count.
+
+PWP2 → `ffx_patched`. ASAH2 → `other` (24% in SDs, below the 50% cut-off). ASAH2B → `sd`.
+
+## Step 1: eGene presence and absence
+
+`compare-eqtl.py` asks the simplest question: eGene on A, on B? Genes tested on both T2T and GRCh38: 16,236. 14,338 are eGenes on both, 379 on T2T only and 274 on GRCh38 only — almost all threshold effects (q just above 0.05 on the other side).
+
+This step is **not enough**: PWP2 is an eGene on every reference. The artefact is in the *size* of the effect. So the comparison moves to slopes.
+
+## Step 2: the same variant on both references
+
+**Script:** `compare-effects.py` · For each gene tested on both references and an eGene on at least one:
+
+1. take each reference's **lead variant**, find its partner on the other reference;
+2. correlate the two variants' genotypes across the cohort (r); require |r| ≥ 0.9;
+3. multiply B's slope by sign(r), so both slopes describe the same allele;
+4. keep the pair (A's lead or B's lead) with the larger difference.
+
+::: {.callout-warning}
+## A bug caught by checking against raw data
+The first version flipped signs using the matching table's "swapped" label. Some indels are written differently by the two panels (T2T `C:CA` vs GRCh38 `CA:C`) and were labelled swapped although their genotypes correlate at r = +1. Eleven genes with identical effects became false "opposite-sign changes". The sign now comes from the genotype correlation itself.
+:::
+
+## Step 3: is the difference real? The paired test
+
+The difference is Δ = slope_A − slope_B. Its uncertainty decides everything.
+
+**Old test** (`compare-effects.py`), the textbook test for two independent samples:
+
+$$
+z_{\text{diff}} = \frac{\Delta}{\sqrt{se_A^2 + se_B^2}}
+$$
+
+But the two slopes come from **the same people**, and most of a gene's reads are identical on both references (median correlation of residual expression ρ = 0.99). Shared noise moves both slopes together and cancels in Δ. Ignoring that makes the old test far too cautious.
+
+**Paired test** (`paired-test.py`):
+
+$$
+z_{\text{paired}} = \frac{\Delta}{\sqrt{se_A^2 + se_B^2 - 2\,\text{cov}(\text{slope}_A, \text{slope}_B)}}
+$$
+
+with the covariance estimated from the two regressions' residuals (as for seemingly unrelated regressions, Zellner 1962):
+
+$$
+\text{cov} = \frac{\sum_i e_{A,i}\, e_{B,i}}{\text{dof}} \cdot \frac{\sum_i g_{A,i}\, g_{B,i}}{\sum_i g_{A,i}^2 \sum_i g_{B,i}^2}
+$$
+
+::: {.callout-tip}
+## Following the samples — the two tests, T2T vs patched GRCh38, STAR
+
+| | PWP2 | ASAH2 |
+|---|---:|---:|
+| Slope T2T | 0.287 | **+0.771** |
+| Slope patched (aligned to T2T's allele) | 0.284 | **−0.534** |
+| Δ | 0.003 | 1.305 |
+| ρ (residual expression, T2T vs patched) | 0.98 | **0.12** |
+| se of Δ, independent | 0.029 | 0.062 |
+| se of Δ, paired | **0.004** | 0.059 |
+| z_diff / z_paired | 0.10 / 0.79 | 21.0 / 22.3 |
+| Changed? | no | **yes** |
+
+- **PWP2**: T2T and patched GRCh38 agree (the patch fixed it), and the paired test confirms there is no difference. The positive control instead shows up in *patched vs GRCh38*, where PWP2 changes with z ≈ −28.
+- **ASAH2**: the two references measure ASAH2 almost independently (ρ 0.12, because reads move), so the paired and independent se are similar. The change is huge either way.
+- Where ρ is high, the paired test gains a lot: ARMC10 goes from z −7 to −25.
+:::
+
+**Is the paired test correct?** It was checked without the formula, by **bootstrapping** people (300 genes × 200 resamples): the bootstrap spread of Δ is 0.94–0.96 × the paired se (accurate, slightly cautious), while the independent se is 9–15 × too large. On the internal null (patched vs GRCh38 under salmon, which differ only in patched regions), the genome-wide inflation λ is 1.03, as it should be.
+
+![Left: old vs paired z for every compared gene. Right: bootstrap calibration and replication by size floor.](../../results/07-presentation/figures/fig08-paired-test.png){#fig-paired}
+
+## Step 4: calls and gene sets
+
+A gene is called **changed** when:
+
+1. the paired test is significant after **Bonferroni** (about 13,500 genes; p < ~4×10⁻⁶),
+2. under **both STAR and salmon**, with the **same sign** of Δ,
+3. with **no artefact flag**,
+4. and |Δ| ≥ **0.1 SD** under both methods (the *main* set).
+
+The size floor was chosen with data: replication in independent Geuvadis people rises with the floor up to 0.1 SD and then levels off.
+
+| Set (T2T vs patched GRCh38) | Genes | In SDs | Replicate in Geuvadis (nominal) |
+|---|---:|---:|---:|
+| **extent** — paired test, no floor | 255 | 68 | 71% |
+| **main** — paired, \|Δ\| ≥ 0.1 under both | **117** | 59 | **91%** |
+| **core** — the old test | 57 | 33 | 98% |
+
+- **None of the 117 lies in a FixItFelix region.** That is H0.
+- **Positive control** (patched vs GRCh38): 8 of the 9 genes FixItFelix's patch changes under STAR also change under salmon, all inside its regions: GATD3, PWP2, CBS, ICOSLG, U2AF1 and others. Our pipeline reproduces the published result.
+
+## Step 5: where did the reads go? {#sec-destination}
+
+**Script:** `read-destination.py`. For each changed gene and each person, take the expression change between references (CPM on T2T − CPM on patched GRCh38). Then find the gene whose change goes the **opposite way** across people most strongly — the gene that received the reads.
+
+::: {.callout-tip}
+## Following the samples — ASAH2's partner
+ASAH2's partner is **ASAH2B**, r = −0.91 across 731 people. Mean ASAH2 CPM: 0.69 on T2T vs 1.12 on patched GRCh38. The people who lose ASAH2 reads on T2T are the same people whose ASAH2B gains them.
+:::
+
+33 of the 57 core genes have a clear partner (r < −0.5):
+
+- **Paralog swaps**: CCZ1↔CCZ1B (−0.96), ASAH2↔ASAH2B (−0.91), IFITM3↔IFITM2, PMS2↔PMS2CL, BMP8A↔BMP8B…
+- **Processed pseudogenes**: RPSA↔RPSA2, H3-3A↔H3P6.
+- **Genes that exist only on T2T**: SMG1P6 → LOC124907836, PDPR2P → LOC128966601, IFITM3-AS1 → LOC124906937. GRCh38 lacks the sequence, so its reads pile onto the nearest paralog: missing sequence creating an eQTL artefact.
+
+![Paralog swaps: per-person changes of a gene and its read partner move in opposite directions.](../../results/07-presentation/figures/fig10-paralog-swaps.png){#fig-swaps}
+
+## Step 6: reversed eQTLs
+
+31 of the 57 core genes have opposite-sign slopes; **13** are true reversals (p < 10⁻⁵ on both references, opposite directions). ASAH2 is one (+0.77 vs −0.53).
+
+| Where the compared variant lies | Genes | Reading |
+|---|---:|---|
+| In transcribed sequence (RPS2, ELOB, TCAF2/TCAF2P1) | 4 | "mapping eQTL": the allele itself steers reads between copies |
+| Outside exons, often far away and in SDs (ASAH2 534 kb, CCZ1 894 kb) | 9 | the variant probably tags a structural/copy-number difference between people |
+
+Why it matters: colocalisation, Mendelian randomisation and TWAS use the **direction** of an eQTL. A reversal can flip whether a risk allele is read as raising or lowering a gene.
+
+## Step 7: is it copy number?
+
+People differ in how many copies of duplicated genes they carry. If a variant simply tags copy number, the "reference effect" could be a copy-number effect. ctyper's per-person paralog copy numbers were added as covariates (`paired-test.py --copy-number`): **32 of 34 covered core genes stay changed**, median Δ ratio 1.00. All 10 covered reversals are unchanged. Copy number does not explain the changes.
+
+## H1: variants only T2T has {#sec-h1}
+
+Rerunning tensorQTL with **all** variants (not just matched) asks whether new-sequence variants matter.
+
+| Step | Genes |
+|---|---:|
+| T2T eGenes whose lead variant lies in T2T-only sequence | 59 |
+| …genotyped without quality flags ("solid") | 22 |
+| …where the T2T-only variant carries its own signal | 15 |
+| …that **replicate** in Geuvadis with their own signal | **8** (5 distinct variants) |
+
+Quality was judged from the genotypes themselves (heterozygote excess, Hardy–Weinberg, satellite arrays). Examples: IVNS1ABP and CBSLR (one 5-bp deletion), the chr1 OR2T cluster, WASH8P, KIF1A, PDCD2. As predicted in stage 01, H1 gives a handful of solid examples, not a genome-wide effect.
+
+## The tools: how the comparison works {#sec-tools-06}
+
+Stage 06 uses one external tool (UCSC `liftOver`) and otherwise the project's own Python scripts, built on pandas/numpy/scipy. What each does:
+
+| Step | Tool / script | Input | What it computes |
+|---|---|---|---|
+| Pair variants | `liftOver` + `match-variants.py` | both panels' BCFs (via `bcftools query`), UCSC chain `hs1ToHg38` | for every T2T variant, its GRCh38 partner (or why there is none) |
+| Label genes | `make-gene-classes.py` | both annotations, SD tracks, T2T-new-sequence track, FixItFelix BED | region class + artefact flags per GeneID |
+| Presence/absence | `compare-eqtl.py` | the three `cis-eqtl.tsv.gz` + nominal | eGene on each reference; does each lead replicate on the others? |
+| Same-variant slopes | `compare-effects.py` | `genes.tsv`, nominal files, variant pairs | slope on A vs slope on B at the same variant, z_diff |
+| Paired test | `paired-test.py` | the same + phenotypes, covariates, genotypes | covariance of the two slopes, z_paired, STAR + salmon agreement |
+| Gene sets | `define-gene-sets.py` | `robust-*.tsv` + Geuvadis replication | extent / main / core tiers |
+| Read destination | `read-destination.py` | CPM matrices of both references | which gene received the reads |
+
+### liftOver — converting a position between references
+
+A **chain file** is a list of aligned blocks: "T2T chr21 from position x to y matches GRCh38 chr21 from x′ to y′, on the + (or −) strand". `liftOver` takes each T2T variant as a 1-bp interval and finds the block it falls in; the position is shifted by that block's offset. Settings: `-minMatch=0.95`. A T2T variant that falls in no block is `no_liftover` — typically sequence GRCh38 lacks.
+
+liftOver only converts **positions**. The pairing rule in `match-variants.py` then requires:
+
+1. a GRCh38 variant at that position with the same two alleles — either the same way round (`same`) or with REF and ALT swapped (`swapped`, because at ~20% of common sites the two genomes carry different bases); on a − strand block, SNP alleles are reverse-complemented first;
+2. for indels written differently by the two panels, the nearest GRCh38 indel within 20 bp with the same length change and MAF within 0.01;
+3. **MAF agreement within 0.02**: it is the same people from the same reads, so a true pair has the same frequency. Otherwise → `matched_maf_discordant` (mostly paralogous positions).
+
+### The genotype correlation — the sign check
+
+Before comparing two slopes, `compare-effects.py` correlates the two variants' 0/1/2 genotypes across the 731 people (`geno_r`). If r ≈ +1, ALT on A is ALT on B; if r ≈ −1, ALT on A is REF on B and B's slope is multiplied by −1. If |r| < 0.9 the two are not the same variant and the gene is not compared at that lead.
+
+### The paired test — using the fact that it is the same people
+
+Explained in Step 3 above. In practice, `paired-test.py` reruns the two regressions for the compared variant to get each person's residuals (`e_A`, `e_B`), and from them:
+
+- `rho` = correlation of the residuals: how much of the unexplained expression the two references share. Close to 1 → the two measurements are almost the same reads.
+- `cov_ab` = the covariance of the two slopes (formula above).
+- `se_diff_paired` = √(se_A² + se_B² − 2·cov_ab), and `z_paired` = Δ / se_diff_paired.
+
+### Read destination — where did the reads go?
+
+For a changed gene g, `read-destination.py` takes each person's change Δ_i = CPM_T2T − CPM_patched, then searches all genes for the one whose per-person change is most **negatively** correlated with g's. If person *i* lost 3 reads of g and gained 3 reads of h, h's change mirrors g's across people. `partner_frac` is how much of g's change the partner absorbs, per unit.
+
+## The files, row by row {#sec-files-06}
+
+All examples: MAGE, STAR, matched variants, **T2T (A) vs patched GRCh38 (B)** unless stated. Files are sorted by strength of the result, so the first rows are the biggest effects.
+
+::: {.panel-tabset}
+
+### variant-matching
+
+`results/06-compare/variant-matching/chr21.tsv.gz` — one row per variant on either panel (MAF ≥ 1%, 1,089 people). The first rows are the start of chr21, the acrocentric short arm, which GRCh38 barely has — so none of them is matched.
+
+::: {.wide}
+| side | t2t_id | grch38_id | category | allele_match | type | maf_t2t | maf_grch38 | t2t_syntenic |
+|---|---|---|---|---|---|---|---|---|
+| t2t | chr21:44014:AAGGAAG:A |  | lifted_not_called_grch38 |  | indel | 0.0110193 |  | False |
+| t2t | chr21:56918:AT:A |  | lifted_not_called_grch38 |  | indel | 0.0849403 |  | False |
+| t2t | chr21:223502:CA:C |  | no_liftover |  | indel | 0.0114784 |  | False |
+| t2t | chr21:310988:C:G |  | lifted_not_called_grch38 |  | snp | 0.12764 |  | False |
+| t2t | chr21:311006:C:T |  | lifted_not_called_grch38 |  | snp | 0.12764 |  | False |
+| t2t | chr21:321357:TG:T |  | lifted_not_called_grch38 |  | indel | 0.0224977 |  | False |
+| t2t | chr21:340008:ATCTCTT:AT |  | lifted_not_called_grch38 |  | indel | 0.023416 |  | False |
+| t2t | chr21:340012:CTTT:CTTTT |  | lifted_not_called_grch38 |  | indel | 0.056933 |  | False |
+| t2t | chr21:340012:CTTT:C |  | lifted_not_called_grch38 |  | indel | 0.0128558 |  | False |
+| t2t | chr21:340012:CTTT:CTTTTT |  | lifted_not_called_grch38 |  | indel | 0.0142332 |  | False |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| t2t | chr21:42445383:A:C | chr21:44089769:A:C | matched | same | snp | 0.371901 | 0.371901 | True |
+| t2t | chr10:51633608:A:C | chr10:50785045:C:A | matched | swapped | snp | 0.373278 | 0.37236 | True |
+| t2t | chr21:5646084:TTATA:T | chr21:9022128:TTATA:T | matched_maf_discordant | same | indel | 0.0780533 | 0.0252525 | True |
+| grch38 |  | chr21:5030578:C:T | not_called_t2t |  | snp |  | 0.0123967 |  |
+
+:::
+
+- `side`: which panel the row comes from. T2T rows carry their partner, if any; GRCh38 rows appear only when **no** T2T variant took them (`not_called_t2t`).
+- `category`: `matched`; `matched_maf_discordant` (same position and alleles, frequencies disagree — 7.8% vs 2.5% in the example: likely different copies of a repeat); `lifted_not_called_grch38` (the position exists on GRCh38 but the GRCh38 panel has no variant there); `no_liftover` (no GRCh38 position).
+- `allele_match`: `same` (PWP2's lead) or `swapped` (ASAH2's: T2T `A>C` = GRCh38 `C>A`).
+- `t2t_syntenic`: the T2T panel's flag for regions that align one-to-one with GRCh38.
+- chr21 totals: 178,856 matched, 1,808 MAF-discordant, 19,101 lifted but not called, 1,365 no liftover, 48,997 GRCh38-only.
+
+### gene-classes.tsv
+
+`results/06-compare/gene-classes.tsv` — one row per NCBI GeneID on either annotation (locus columns not shown). Sorted by GeneID as text.
+
+::: {.wide}
+| gene_ncbi | symbol | biotype | annotated_on | region_class | ffx_patched | t2t_sd_frac | t2t_sd98_frac | t2t_new_frac | flag_mhc | flag_par | flag_chrM | flag_rrna | n_loci_t2t | n_loci_grch38 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | A1BG | protein_coding | both | other | False | 0.000 | 0.000 | 0.000 | False | False | False | False | 1.000 | 1.000 |
+| 10 | NAT2 | protein_coding | both | other | False | 0.000 | 0.000 | 0.000 | False | False | False | False | 1.000 | 1.000 |
+| 100 | ADA | protein_coding | both | other | False | 0.000 | 0.000 | 0.000 | False | False | False | False | 1.000 | 1.000 |
+| 1000 | CDH2 | protein_coding | both | other | False | 0.008 | 0.000 | 0.000 | False | False | False | False | 1.000 | 1.000 |
+| 10000 | AKT3 | protein_coding | both | other | False | 0.000 | 0.000 | 0.000 | False | False | False | False | 1.000 | 1.000 |
+| 100008586 | GAGE12F | protein_coding | both | sd | False | 1.000 | 1.000 | 0.000 | False | False | False | False | 1.000 | 1.000 |
+| 100008587 | RNA5-8SN5 | rRNA | both | t2t_new_sequence | False | 1.000 | 1.000 | 1.000 | False | False | False | True | 1.000 | 1.000 |
+| 100008588 | RNA18SN5 | rRNA | grch38_only | other | False | 0.000 | 0.000 | 0.000 | False | False | False | True |  | 1.000 |
+| 100008589 | RNA28SN5 | rRNA | grch38_only | other | False | 0.000 | 0.000 | 0.000 | False | False | False | True |  | 1.000 |
+| 100009601 | TRY-GTA7-1 | tRNA | both | other | False | 0.000 | 0.000 | 0.000 | False | False | False | False | 1.000 | 1.000 |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| 56624 | ASAH2 | protein_coding | both | other | False | 0.241 | 0.241 | 0.000 | False | False | False | False | 1.000 | 1.000 |
+| 5822 | PWP2 | protein_coding | both | ffx_patched | True | 0.000 | 0.000 | 0.000 | False | False | False | False | 1.000 | 1.000 |
+| 653308 | ASAH2B | protein_coding | both | sd | False | 1.000 | 0.936 | 0.000 | False | False | False | False | 1.000 | 1.000 |
+
+:::
+
+- `annotated_on`: `both`, `t2t_only` or `grch38_only` (e.g. the rRNA genes on GRCh38's unplaced contig).
+- `t2t_sd_frac` / `t2t_sd98_frac`: fraction of the gene in segmental duplications (any / ≥ 98% identity). `t2t_new_frac`: fraction in sequence GRCh38 lacks.
+- `region_class`: first that applies of `ffx_patched` → `t2t_new_sequence` (new ≥ 0.5) → `sd` (sd98 ≥ 0.5) → `other`. ASAH2: sd98 = 0.241 → `other`; ASAH2B: 0.936 → `sd`; PWP2: inside a FixItFelix region.
+- `flag_*`: MHC, PAR, chrM, rRNA. `n_loci_*`: copies of the gene in each annotation.
+
+### genes.tsv (compare-eqtl)
+
+`results/06-compare/eqtl-comparison/mage/star-matched/genes.tsv` — one row per gene (17,397), all three references side by side (17 of 42 columns shown). Sorted by T2T gene-level p.
+
+::: {.wide}
+| gene_ncbi | symbol | variant_id_chm13v2.0 | slope_chm13v2.0 | qval_chm13v2.0 | variant_id_grch38 | slope_grch38 | qval_grch38 | slope_grch38-ffx | qval_grch38-ffx | egene_chm13v2.0 | egene_grch38 | rep_chm13v2.0_on_grch38 | only_chm13v2.0_vs_grch38 | region_class | overlap_differs | artefact_flag |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 387066 | SNHG5 | chr6:86895005:G:T | 1.168 | 2.767e-288 | chr6:85678170:G:T | 1.17 | 2.335e-291 | 1.169 | 1.349e-291 | True | True | True | False | other | False | False |
+| 6231 | RPS26 | chr12:56009210:G:C | 1.05 | 1.57e-264 | chr12:56042145:C:G | -1.054 | 2.144e-266 | -1.049 | 5.117e-268 | True | True | True | False | other | False | False |
+| 162394 | SLFN5 | chr17:36192462:G:A | 1.174 | 4.747e-264 | chr17:35244527:G:A | 1.173 | 2.236e-263 | 1.176 | 3.904e-262 | True | True | True | False | other | False | False |
+| 51144 | HSD17B12 | chr11:44012652:A:G | 1.096 | 2.187e-262 | chr11:43856935:G:A | -1.137 | 1.779e-272 | -1.128 | 5.201e-272 | True | True | True | False | other | False | False |
+| 4605 | MYBL2 | chr20:45401203:A:C | -0.8217 | 1.394e-240 | chr20:43668004:A:C | -0.8209 | 1.986e-242 | -0.8138 | 4.445e-241 | True | True | True | False | other | False | False |
+| 91689 | SMDT1 | chr22:42559288:G:T | 1.032 | 7.588e-235 | chr22:42079699:T:G | -1.033 | 1.365e-235 | -1.022 | 1.449e-235 | True | True | True | False | other | False | False |
+| 116541 | MRPL54 | chr19:3741952:C:T | 0.7395 | 1.894e-233 | chr19:3762700:C:T | 0.7403 | 2.718e-234 | 0.7343 | 4.03e-234 | True | True | True | False | other | False | False |
+| 10694 | CCT8 | chr21:27437067:A:G | -1.184 | 9.533e-233 | chr21:29073627:G:A | 1.2 | 3.106e-236 | 1.183 | 1.235e-233 | True | True | True | False | other | False | False |
+| 642946 | FLVCR1-DT | chr1:212087639:G:A | 1.168 | 5.181e-228 | chr1:212842665:G:A | 1.17 | 9.739e-229 | 1.167 | 7.478e-229 | True | True | True | False | other | False | False |
+| 64167 | ERAP2 | chr5:97417765:T:C | 1.197 | 1.712e-227 | chr5:96916885:T:C | 1.199 | 6.212e-229 | 1.198 | 1.151e-225 | True | True | True | False | other | False | False |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| 56624 | ASAH2 | chr10:51633608:A:C | 0.7707 | 3.953e-55 | chr10:50728240:A:C | 0.8469 | 5.088e-71 | 0.8515 | 1.736e-71 | True | True | True | False | other | False | False |
+| 5822 | PWP2 | chr21:42445383:A:C | 0.287 | 4.725e-34 | chr21:44089769:A:C | 1.16 | 1.819e-210 | 0.284 | 2.145e-32 | True | True | True | False | ffx_patched | True | True |
+| 653308 | ASAH2B | chr10:51648509:A:G | -0.4445 | 1.087e-16 | chr10:50743249:G:A | -0.8091 | 5.414e-66 | -0.8045 | 3.305e-65 | True | True | False | False | sd | False | False |
+
+:::
+
+- `variant_id_* / slope_* / qval_*`: each reference's `cis-eqtl` result. Slopes are per that reference's own ALT: RPS26's +1.05 on T2T and −1.05 on GRCh38 are the **same** effect, because the lead variants have swapped alleles (`G:C` vs `C:G`). That is why presence/absence and raw slopes alone can mislead.
+- `egene_*`: q < 0.05. `rep_A_on_B`: A's lead has nominal p < 0.05 on B. `only_A_vs_B`: eGene on A, not on B, **and** A's lead not even nominal on B (the strict "only" count).
+- `overlap_differs`: the genes overlapping this one differ between the two annotations; `artefact_flag` = overlap_differs or MHC or PAR. PWP2 is flagged this way, which is why it is reported as the positive control but not counted in H0.
+
+### effects (compare-effects)
+
+`.../star-matched/effects-chm13v2.0-vs-grch38-ffx.tsv` — one row per compared gene (14,925), the lead with the larger |z_diff| (selected columns).
+
+::: {.wide}
+| symbol | region_class | artefact_flag | lead_of | var_a | var_b | geno_r | slope_a | se_a | slope_b | se_b | z_diff | p_diff | changed | stronger_on |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| HLA-DQB2 | other | True | grch38-ffx | chr6:32482883:G:T | chr6:32659858:T:G | -0.9987 | 1.067 | 0.02931 | -1.151 | 0.02445 | 58.1 | 0 | True | grch38-ffx |
+| HLA-DQA1 | other | True | grch38-ffx | chr6:32475744:A:AC | chr6:32646186:AC:A | -0.9962 | -0.742 | 0.03811 | 1.012 | 0.02571 | -38.15 | 0 | True | grch38-ffx |
+| RPL9 | other | False | grch38-ffx | chr4:39414564:A:G | chr4:39444929:G:A | -1 | 0.1048 | 0.01435 | 0.7937 | 0.01414 | -34.19 | 3.45e-256 | True | grch38-ffx |
+| SIRPB1 | other | False | chm13v2.0 | chr20:1944140:T:C | chr20:1913960:C:T | -1 | 0.7297 | 0.03644 | -0.6914 | 0.03588 | 27.79 | 5.985e-170 | True | chm13v2.0 |
+| HLA-DQB1 | other | True | grch38-ffx | chr6:32473001:T:C | chr6:32643872:C:T | -1 | -0.1068 | 0.04084 | 1.045 | 0.02203 | -24.83 | 3.85e-136 | True | grch38-ffx |
+| STAG3L1 | sd | False | chm13v2.0 | chr7:76808320:A:T | chr7:75520983:T:A | -0.9972 | -0.5817 | 0.0361 | 0.6308 | 0.03642 | -23.65 | 1.326e-123 | True | grch38-ffx |
+| RPL13 | other | False | grch38-ffx | chr16:95641602:G:T | chr16:89561052:T:G | -1 | -0.06187 | 0.01418 | 0.3778 | 0.0133 | -22.62 | 2.734e-113 | True | grch38-ffx |
+| TCAF2P1 | sd | False | chm13v2.0 | chr7:145008621:G:T | chr7:143728268:T:G | -0.9986 | 0.7781 | 0.03393 | -0.4525 | 0.04307 | 22.44 | 1.487e-111 | True | chm13v2.0 |
+| ASAH2 | other | False | chm13v2.0 | chr10:51633608:A:C | chr10:50785045:C:A | -0.9987 | 0.7707 | 0.04104 | -0.5344 | 0.04685 | 20.96 | 1.688e-97 | True | chm13v2.0 |
+| ANAPC1P2 | sd | False | chm13v2.0 | chr2:86901457:T:C | chr2:86899541:C:T | -1 | -0.4677 | 0.02804 | 0.3595 | 0.02924 | -20.42 | 1.222e-92 | True | chm13v2.0 |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| ASAH2 | other | False | chm13v2.0 | chr10:51633608:A:C | chr10:50785045:C:A | -0.9987 | 0.7707 | 0.04104 | -0.5344 | 0.04685 | 20.96 | 1.688e-97 | True | chm13v2.0 |
+| ASAH2B | sd | False | grch38-ffx | chr10:51591824:A:G | chr10:50743249:G:A | -1 | 0.1546 | 0.04472 | 0.8045 | 0.03834 | -11.03 | 2.679e-28 | True | grch38-ffx |
+| PWP2 | ffx_patched | True | chm13v2.0 | chr21:42445383:A:C | chr21:44089769:A:C | 1 | 0.287 | 0.02038 | 0.284 | 0.02081 | 0.1027 | 0.9182 | False | chm13v2.0 |
+
+:::
+
+- `lead_of`: whose lead variant was used. `var_a` / `var_b`: the variant on T2T and its partner on GRCh38.
+- `geno_r`: genotype correlation of the pair; −1 → swapped alleles. **`slope_b` is already sign-corrected** to A's allele, so `slope_a` and `slope_b` can be compared directly.
+- `z_diff`, `p_diff`: the old independent-samples test; `changed`: Bonferroni significant. `stronger_on`: larger |slope|.
+- ASAH2: +0.77 vs −0.53 (opposite directions), z_diff 21. PWP2: 0.287 vs 0.284, z_diff 0.10 → unchanged (the patch fixed it).
+- The top rows are HLA genes (flagged: the two references carry different HLA haplotypes) and ribosomal-protein genes, whose many processed pseudogenes compete for reads.
+
+### effects (paired-test)
+
+`.../paired-matched/effects-chm13v2.0-vs-grch38-ffx-star.tsv` — the same genes with the paired test added (selected columns). Sorted by the paired p.
+
+::: {.wide}
+| symbol | artefact_flag | slope_a | slope_b | delta | rho | cov_ab | se_diff_indep | se_diff_paired | z_diff | z_paired | p_paired | changed_paired |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| HLA-DQB2 | True | 1.067 | -1.151 | 2.218 | -0.07757 | -5.533e-05 | 0.03817 | 0.03959 | 58.1 | 56.02 | 0 | True |
+| RPL9 | False | 0.1048 | 0.7937 | -0.6889 | 0.8613 | 0.0001746 | 0.02015 | 0.007528 | -34.19 | -91.51 | 0 | True |
+| HLA-DQA1 | True | -0.742 | 1.012 | -1.754 | 0.8061 | 0.0007842 | 0.04597 | 0.02334 | -38.15 | -75.15 | 0 | True |
+| RPL13 | False | -0.06187 | 0.3778 | -0.4397 | 0.9162 | 0.0001724 | 0.01944 | 0.005744 | -22.62 | -76.54 | 0 | True |
+| RPSA | False | -0.6291 | -0.4744 | -0.1547 | 0.965 | 0.0001613 | 0.0183 | 0.003495 | -8.457 | -44.26 | 0 | True |
+| PTGES3 | False | -0.1376 | 0.2599 | -0.3975 | 0.9846 | 0.002039 | 0.06443 | 0.008579 | -6.17 | -46.34 | 0 | True |
+| H3-3A | False | -0.1407 | 0.3148 | -0.4555 | 0.8617 | 0.0002792 | 0.02554 | 0.009679 | -17.84 | -47.06 | 0 | True |
+| VOPP1 | False | -0.4965 | -0.05475 | -0.4417 | 0.9639 | 0.0006126 | 0.0357 | 0.007029 | -12.37 | -62.85 | 0 | True |
+| UBC | False | -0.5538 | 0.01261 | -0.5664 | 0.9305 | 0.0005773 | 0.03525 | 0.009378 | -16.07 | -60.4 | 0 | True |
+| ELOB | False | -0.3167 | 0.07251 | -0.3892 | 0.888 | 0.0002238 | 0.02248 | 0.007613 | -17.31 | -51.13 | 0 | True |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| ASAH2 | False | 0.7707 | -0.5344 | 1.305 | 0.1173 | 0.0002249 | 0.06229 | 0.05856 | 20.96 | 22.29 | 5.144e-110 | True |
+| ASAH2B | False | 0.1546 | 0.8045 | -0.6499 | 0.5494 | 0.000941 | 0.05891 | 0.03985 | -11.03 | -16.31 | 8.611e-60 | True |
+| PWP2 | True | 0.287 | 0.284 | 0.003 | 0.9839 | 0.0004169 | 0.02913 | 0.003819 | 0.1027 | 0.7856 | 0.4321 | False |
+
+:::
+
+- `delta` = slope_a − slope_b. `rho`: residual correlation between the references. `cov_ab`: covariance of the two slopes.
+- `se_diff_indep` vs `se_diff_paired`: for RPL9 (rho 0.86), the paired se is 2.7 × smaller (0.0201 → 0.0075), so z goes from −34 to −92. For PWP2 (rho 0.98) it is 7.6 × smaller — yet Δ is 0.003, so z_paired is still only 0.79.
+- ASAH2 (rho 0.12): the references see different reads, there is little shared noise to cancel, and the two se are similar.
+
+### robust (STAR + salmon)
+
+`.../paired-matched/robust-chm13v2.0-vs-grch38-ffx.tsv` — the genes whose paired test is significant under **both** STAR and salmon with the same sign (297, flagged genes included; selected columns). Removing the 42 flagged genes gives the 255 of the gene sets.
+
+::: {.wide}
+| symbol | region_class | artefact_flag | delta | z_paired | changed_paired | delta_salmon | z_paired_salmon | changed_paired_salmon | robust_paired | robust_indep |
+|---|---|---|---|---|---|---|---|---|---|---|
+| HLA-DQB2 | other | True | 2.218 | 56.02 | True | 1.943 | 48.08 | True | True | True |
+| HLA-DQA1 | other | True | -1.754 | -75.15 | True | -1.465 | -40.42 | True | True | True |
+| RPL9 | other | False | -0.6889 | -91.51 | True | -0.304 | -52.28 | True | True | True |
+| RPL13 | other | False | -0.4397 | -76.54 | True | -0.6265 | -85.13 | True | True | True |
+| RPSA | other | False | -0.1547 | -44.26 | True | -0.198 | -35.3 | True | True | True |
+| PTGES3 | other | False | -0.3975 | -46.34 | True | -1.437 | -77.64 | True | True | True |
+| TCAF2 | sd | False | -0.6045 | -40.7 | True | -0.6916 | -31.63 | True | True | True |
+| ELOB | other | False | -0.3892 | -51.13 | True | -0.4288 | -39.35 | True | True | True |
+| UBC | other | False | -0.5664 | -60.4 | True | -0.2136 | -43.68 | True | True | True |
+| GPX1 | other | False | -0.3618 | -42.64 | True | -0.7062 | -36.57 | True | True | True |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| ASAH2 | other | False | 1.305 | 22.29 | True | 1.668 | 27.36 | True | True | True |
+| ASAH2B | sd | False | -0.6499 | -16.31 | True | -0.4396 | -13.27 | True | True | True |
+
+:::
+
+- `*_salmon`: the same test on salmon's expression.
+- `robust_paired` = changed with the paired test under STAR **and** salmon, with the same sign of Δ (true for every row of this file). `robust_indep` = the same with the old test: 71 of the 297 also pass it.
+
+### gene-sets
+
+`.../gene-sets/changed-chm13v2.0-vs-grch38-ffx.tsv` — the final list (255 = extent), unflagged genes only.
+
+::: {.wide}
+| gene_ncbi | symbol | biotype | region_class | tier | var_a | var_b | geno_r | slope_a | slope_b | delta | z_paired | delta_salmon | z_paired_salmon | robust_indep | geuvadis_same_sign | geuvadis_nominal | geuvadis_bonferroni |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 6133 | RPL9 | protein_coding | other | core | chr4:39414564:A:G | chr4:39444929:G:A | -1 | 0.1048 | 0.7937 | -0.6889 | -91.51 | -0.304 | -52.28 | True | True | True | True |
+| 6137 | RPL13 | protein_coding | other | core | chr16:95641602:G:T | chr16:89561052:T:G | -1 | -0.06187 | 0.3778 | -0.4397 | -76.54 | -0.6265 | -85.13 | True | True | True | True |
+| 6187 | RPS2 | protein_coding | other | core | chr16:1984241:G:A | chr16:1964282:A:G | -1 | -0.1455 | 0.4088 | -0.5543 | -67.74 | -0.4506 | -58.67 | True | True | True | True |
+| 7316 | UBC | protein_coding | other | core | chr12:124915482:G:A | chr12:124910282:A:G | -1 | -0.5538 | 0.01261 | -0.5664 | -60.4 | -0.2136 | -43.68 | True | True | True | True |
+| 6923 | ELOB | protein_coding | other | core | chr16:2792205:T:TC | chr16:2771987:TC:T | -1 | -0.3167 | 0.07251 | -0.3892 | -51.13 | -0.4288 | -39.35 | True | True | True | True |
+| 3020 | H3-3A | protein_coding | other | core | chr1:225268666:CA:CAA | chr1:226080765:C:CA | 0.9985 | -0.1407 | 0.3148 | -0.4555 | -47.06 | -0.5388 | -59.24 | True | True | True | True |
+| 10728 | PTGES3 | protein_coding | other | core | chr12:56662416:G:A | chr12:56694414:A:G | -1 | -0.1376 | 0.2599 | -0.3975 | -46.34 | -1.437 | -77.64 | True | True | True | True |
+| 3921 | RPSA | protein_coding | other | core | chr3:39420017:T:G | chr3:39407090:T:G | 1 | -0.6291 | -0.4744 | -0.1547 | -44.26 | -0.198 | -35.3 | True | True | True | True |
+| 2876 | GPX1 | protein_coding | other | core | chr3:49544391:GT:GTT | chr3:49515388:G:GT | 0.9975 | 0.074 | 0.4358 | -0.3618 | -42.64 | -0.7062 | -36.57 | True | True | True | True |
+| 285966 | TCAF2 | protein_coding | sd | core | chr7:145008621:G:T | chr7:143728268:T:G | -0.9986 | -0.3335 | 0.271 | -0.6045 | -40.7 | -0.6916 | -31.63 | True | True | True | True |
+| ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ | ⋮ |
+| 56624 | ASAH2 | protein_coding | other | core | chr10:51633608:A:C | chr10:50785045:C:A | -0.9987 | 0.7707 | -0.5344 | 1.305 | 22.29 | 1.668 | 27.36 | True | True | True | True |
+| 653308 | ASAH2B | protein_coding | sd | core | chr10:51591824:A:G | chr10:50743249:G:A | -1 | 0.1546 | 0.8045 | -0.6499 | -16.31 | -0.4396 | -13.27 | True | True | True | True |
+
+:::
+
+- `tier`: the narrowest set: `core` (57) ⊂ `core`+`main` (= the 117 *main* genes) ⊂ all 255 (*extent*).
+- `geuvadis_*`: the same variant pair and allele coding in Geuvadis: same sign of Δ, nominal p < 0.05, Bonferroni significant.
+- ASAH2 and ASAH2B are both `core` and both replicate in Geuvadis.
+
+### read-destination
+
+`.../robust-matched/read-destination-chm13v2.0-vs-grch38-ffx.tsv` — one row per core gene (57). Sorted by the strength of the partner.
+
+::: {.wide}
+| symbol | region_class | stronger_on | cpm_chm13v2.0 | cpm_grch38-ffx | mean_delta | partner | partner_class | partner_annotated_on | partner_r | partner_frac | next_partners |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| IFITM3-AS1 | other | chm13v2.0 | 1.471 | 4.731 | -3.26 | LOC124906937 | other | t2t_only | -0.9649 | 0.6704 | IFITM2 (r=-0.37); RSAD2 (r=-0.34) |
+| CCZ1 | sd | chm13v2.0 | 21.28 | 20.11 | 1.17 | CCZ1B | sd | both | -0.9582 | 0.8648 | PMS2CL (r=-0.26); RCSD1 (r=-0.23) |
+| CCZ1B | sd | grch38-ffx | 17.73 | 18.23 | -0.4938 | CCZ1 | sd | both | -0.9582 | 1.062 | PMS2 (r=-0.24); LOC124903025 (r=-0.17) |
+| SMG1P6 | sd | grch38-ffx | 1.735 | 5.79 | -4.055 | LOC124907836 | t2t_new_sequence | t2t_only | -0.9417 | 1.283 | LOC124907834 (r=-0.60); LOC124906110 (r=-0.36) |
+| RPSA | other | chm13v2.0 | 2361 | 2466 | -105.5 | RPSA2 | other | both | -0.9404 | 0.4625 | LINC01709 (r=-0.41); RPL10 (r=-0.29) |
+| IFITM3 | other | grch38-ffx | 11.75 | 16.66 | -4.911 | IFITM2 | other | both | -0.9236 | 1.57 | NUB1 (r=-0.36); LOC124906937 (r=-0.35) |
+| ASAH2 | other | chm13v2.0 | 0.6855 | 1.116 | -0.4307 | ASAH2B | sd | both | -0.9136 | 2.048 | RPS26 (r=-0.39); RBM23 (r=-0.37) |
+| ASAH2B | sd | grch38-ffx | 8.143 | 7.498 | 0.6445 | ASAH2 | other | both | -0.9136 | 0.4075 | MRPL45P2 (r=-0.39); FBXL12 (r=-0.37) |
+| SDHAP1 | other | chm13v2.0 | 14.43 | 16.32 | -1.892 | SDHAP2 | other | both | -0.8837 | 0.7527 | MIR570HG (r=-0.20); ERO1B (r=-0.17) |
+| LOC124906110 | other | grch38-ffx | 42.2 | 2.907 | 39.29 | ANKRD17 | other | both | -0.8803 | 0.2494 | SLAIN2 (r=-0.84); ZFC3H1 (r=-0.84) |
+
+:::
+
+- `cpm_*`: mean CPM on each reference; `mean_delta`: mean (T2T − patched).
+- `partner`: the gene whose per-person change mirrors this one most strongly; `partner_r`: that correlation; `partner_frac`: units of partner change per unit of this gene's change (ASAH2B moves ~2 CPM per 1 CPM of ASAH2); `next_partners`: the runners-up.
+- `partner_annotated_on = t2t_only`: the reads go to a gene GRCh38 does not have (IFITM3-AS1 → LOC124906937).
+
+:::
+
+# Replication in Geuvadis {#sec-replication}
+
+The same pipeline (stages 04–05) on Geuvadis, then each MAGE result is looked up at **exactly the same variant pair and allele coding** in Geuvadis.
+
+::: {.callout-important}
+## Independence
+93 people are in both cohorts (HG00096 is one of them). Their RNA was sequenced separately, but their genotypes are the same, so they are **dropped**: replication is computed on the other **358** Geuvadis people.
+:::
+
+| T2T vs patched GRCh38 | Tested | Same sign (STAR & salmon) | Nominal | Bonferroni |
+|---|---:|---:|---:|---:|
+| core (57) | 54 | 54 | 53 | 51 |
+| main (117) | 110 | 106 | 100 | 86 |
+| reversals (13) | 12 | 10 reverse again | | |
+| H1 solid examples (15) | 15 | | 9 | 8 with own signal |
+
+ASAH2 replicates under both methods at Bonferroni. Geuvadis on its own also reproduces the positive control (8 patch-changed genes, all in FixItFelix regions).
+
+![Replication of the main set and H1 examples in Geuvadis.](../../results/07-presentation/figures/fig12-replication.png){#fig-replication}
+
+# GWAS: does the disease interpretation change? {#sec-gwas}
+
+H6 asks whether the gene a GWAS locus points to changes with the reference. GWAS data stay on GRCh38; T2T variant IDs are converted to GRCh38 so both references are tested on the same variants.
+
+| Step | Script | Result |
+|---|---|---|
+| Lookup: GWAS Catalog hits in LD (r² ≥ 0.8) with the gene's variants | `gwas-lookup.py` | 60 of 117 main genes have a hit — but so do 46% of matched unchanged genes (no enrichment). The hit depends on the reference for 26% of main genes vs 4% of background |
+| Colocalisation, one causal variant (coloc ABF), 6 immune/cardiometabolic GWAS | `coloc.py` | 6 main genes colocalise on one reference only |
+| Colocalisation, several causal variants (SuSiE-coloc) | `coloc-susie.py` | 3 of 5 testable one-reference calls hold: **IFITM3-AS1** (hypothyroidism), LOC124903630 (atrial fibrillation), SERF1B. PTGES3 did not hold |
+
+::: {.callout-note}
+## The headline H6 example: IFITM3-AS1 and hypothyroidism
+On patched GRCh38, the eQTL and the GWAS signal (p 8×10⁻¹⁸) share their lead variant, chr11:324163 C>T (PP4 0.998). On T2T the eQTL moves to a variant 7 bp away that is not the GWAS variant (PP3 0.996, two distinct signals). IFITM3-AS1's reads on GRCh38 partly belong to LOC124906937, a gene annotated only on T2T (@sec-destination). Which reference is right is not yet decided.
+:::
+
+# In progress: which reference is right? {#sec-ase}
+
+A reversal says the two references disagree; it does not say who is right. **Allele-specific expression** (ASE) can decide: in a person heterozygous at the eQTL variant, the haplotype carrying the ALT allele should give more (or fewer) RNA reads than the other haplotype, *within the same person*.
+
+- Feasibility (`ase-feasibility.py`): 59 of 117 main genes have ≥ 20 informative people. Most SD reversals have **no** panel SNP in their exons (short-read panels call few variants in SDs).
+- So long reads are used: ONT data for 260 MAGE people, SNPs called with Clair3 and phased with WhatsHap (`ont-call.sbatch`), and RNA realigned for 347 people (`ase-realign.sbatch`). Both finished 2026-10-29/30; the allele counting is next.
+
+# Stage 07 — Presentation {#sec-presentation}
+
+`scripts/07-presentation/`: `prepare-figure-data.py` → tables in `results/07-presentation/data/`; `make-figures.R` → 13 figures; `build-workbook.py` → project overview workbook; `build-deck.py` → talk; the manuscript is `results/07-presentation/manuscript/t2t-eqtl-manuscript.docx`.
+
+# The whole journey in numbers {#sec-summary}
+
+| Stage | Goes in | Comes out |
+|---|---|---|
+| 01 Genotypes | 3,202-person panels ×2 | 1,089 people; 7.76 M shared + 18.2 k T2T-only common variants |
+| 02 References | 3 FASTAs, RefSeq RS_2025_08 | 3 comparable references, genes matched by GeneID (55,334 shared) |
+| 03 Pilot | 10 samples | go; "STAR and salmon must agree" |
+| 04 Expression | 1,431 runs (~5 TB of reads, never stored at once) | genes × people matrices, 3 references × 2 cohorts |
+| 05 eQTL | 731 people × ~17,000 genes × 11.8 M variants | ~15,000 eGenes per reference |
+| 06 Compare | ~13,500 genes compared at the same variant | **117 changed genes (main), none in FixItFelix regions**; 57 core; 255 extent; 13 reversals; 8 H1 genes at 5 loci |
+| Replication | 358 independent Geuvadis people | 91% of main genes replicate (nominal) |
+| GWAS | 6 traits | IFITM3-AS1, LOC124903630, SERF1B colocalise on one reference only |
+
+::: {.callout-important}
+## The story in three sentences
+1. Patching GRCh38's known errors fixes the known artefacts: PWP2's eQTL is four times too strong on GRCh38 and correct on both T2T and patched GRCh38.
+2. A complete reference still changes the eQTLs of about 117 more genes, all outside the patched regions, mostly duplicated gene families where reads move between copies; 13 of them reverse direction.
+3. These changes replicate in independent people, are not explained by copy number, and at a few loci change which variant a disease signal shares with gene expression.
+:::
+
+# The recurring rules {#sec-rules}
+
+1. **Change only the reference.** Everything else identical.
+2. **A change counts only when STAR and salmon agree.**
+3. **Compare effect sizes at the same variant,** not eGene lists.
+4. **Keep a positive control:** GRCh38 vs patched GRCh38 must reproduce FixItFelix.
+5. **Check labels against raw data:** read counts against ENA, md5 sums, allele signs against genotype correlation.
+6. **Every step is safe to rerun:** completion markers, skip finished work, resumable downloads.
+
+# Glossary {#sec-glossary}
+
+| Term | Meaning |
+|---|---|
+| **Allele, REF, ALT** | the two versions of a variant; REF is the one in the reference, ALT the other |
+| **MAF** | minor allele frequency: how common the rarer allele is |
+| **eQTL / eGene** | a variant associated with a gene's expression / a gene with at least one significant eQTL (q < 0.05) |
+| **Lead variant** | the variant with the strongest association for a gene |
+| **Slope (β)** | change in normalised expression (SD) per copy of the ALT allele |
+| **CPM / TPM** | counts per million reads / transcripts per million (length-corrected) |
+| **TMM** | normalisation for library size and composition |
+| **Inverse-normal transform** | replace values by normal quantiles of their ranks |
+| **PCs** | principal components: summaries of the main axes of variation (ancestry, hidden factors) |
+| **SD (segmental duplication)** | a stretch of DNA present in two or more near-identical copies |
+| **Paralog** | a gene copy created by duplication (ASAH2 / ASAH2B) |
+| **Processed pseudogene** | a DNA copy of an mRNA inserted elsewhere (RPSA2 for RPSA) |
+| **False duplication** | a region present twice in the reference but once in real genomes (GRCh38 chr21) |
+| **Syntenic / T2T-only sequence** | sequence present in both references / only in T2T |
+| **Liftover, chain file** | conversion of coordinates between assemblies |
+| **Multi-mapped read** | a read that aligns equally well to several places |
+| **q-value** | the false discovery rate at which a result becomes significant |
+| **Bonferroni** | divide 0.05 by the number of tests |
+| **λ (lambda)** | genomic inflation: median test statistic relative to its expected value under no effect |
+| **Bootstrap** | resampling people with replacement to measure uncertainty directly |
+| **Colocalisation (PP4 / PP3)** | probability that two signals share one causal variant / have two different ones |
+| **ASE** | allele-specific expression: the two haplotypes of one person compared |
+
+# Where everything lives {#sec-files}
+
+```
+config/samples/expression-individuals.tsv         who is included (01)
+config/samplesheets/<cohort>.csv                  one row per run (04)
+data/star-references/<ref>/                       references, indexes, genes.tsv (02)
+results/01-genotypes/<ref>/expression/<chr>.bcf   genotypes (01)
+results/04-expression/<cohort>/matrices/<ref>/    star-counts, salmon-counts, salmon-tpm (04)
+results/05-eqtl/<cohort>/genotypes/               pgen sets, genotype PCs (05)
+results/05-eqtl/<cohort>/<ref>/<method>/          phenotypes, covariates, cis-eqtl.tsv.gz, nominal/ (05)
+results/06-compare/variant-matching/              T2T ↔ GRCh38 variant pairs (06)
+results/06-compare/gene-classes.tsv               region class and flags per GeneID (06)
+results/06-compare/eqtl-comparison/mage/
+    star-matched/  salmon-matched/                eGene and effect comparisons
+    paired-matched/                               paired test, calibration
+    gene-sets/changed-<A>-vs-<B>.tsv              main / core / extent with replication
+    robust-matched/read-destination-…tsv          read partners
+    h1-variant-qc.tsv                             H1 examples
+results/06-compare/eqtl-comparison/replication-geuvadis-independent/
+results/06-compare/gwas/                          lookup, coloc, SuSiE-coloc
+results/07-presentation/                          figures, workbook, deck, manuscript
+```
+
+::: {.callout-note appearance="minimal"}
+Numbers on this page come from the project's result files on 2026-10-30. The per-person values for HG00096 and NA19717 were read from the MAGE matrices, phenotype BEDs, covariate files and plink genotype files.
+:::

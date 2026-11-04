@@ -1,0 +1,88 @@
+// Method overview (simple, journal style): the flow only, left to right, with tool versions; no results.
+// One cohort box (MAGE, 731 individuals) feeds both inputs (RNA-seq above, genotypes below); two straight lanes:
+//   expression lane:  RNA-seq -> align -> map eQTLs -> compare -> output (three comparisons)
+//   genotype lane:    genotypes -> prepare genotypes -> match variants (and up into eQTL mapping / comparison)
+// Reference genomes drop in from above. Replication in Geuvadis (451) hangs below the output, dashed.
+// Patched GRCh38 reuses the GRCh38 genotypes (run-tensorqtl.py GENO).
+// The detailed pipeline is pipeline.dot (Fig 1). Font: Helvetica (TeX Gyre Heros on the cluster, same metrics).
+// Render:
+//   pixi run dot -Tpdf scripts/07-presentation/method-overview.dot -o results/07-presentation/figures/method-overview.pdf
+//   pixi run dot -Tsvg scripts/07-presentation/method-overview.dot | sed 's/font-family="TeX Gyre Heros[^"]*"/font-family="Helvetica,TeX Gyre Heros,Arial,sans-serif"/g' > results/07-presentation/figures/method-overview.svg
+//   pixi run dot -Tpng -Gdpi=300 scripts/07-presentation/method-overview.dot -o results/07-presentation/figures/method-overview.png
+// Colours: Okabe-Ito (colour-blind safe). T2T blue, GRCh38 vermilion, patched GRCh38 orange.
+// Versions: STAR 2.7.11b, salmon 1.11.4, plink2 2.0.0a7.8, tensorQTL 1.0.10, UCSC liftOver 482 (pixi.toml, run logs).
+digraph method {
+  graph [bgcolor=transparent, rankdir=LR, fontname="TeX Gyre Heros", fontsize=8, nodesep=0.30, ranksep=0.11, pad=0.06,
+         newrank=true, splines=line];
+  node  [shape=box, style="rounded,filled", fillcolor="white", color="#4D4D4D", penwidth=0.7,
+         fontname="TeX Gyre Heros", fontsize=8, margin="0.04,0.04", width=1.0, height=0.55];
+  edge  [color="#4D4D4D", penwidth=0.7, arrowsize=0.5];
+
+  // ---- cohort (column 0): the same individuals give both inputs
+  cohort [shape=plain, style="", label=<
+    <table border="0" cellborder="0" cellspacing="0" cellpadding="0"><tr>
+      <td port="box"><table border="0" style="rounded" bgcolor="#E6E6E6" cellborder="0" cellpadding="6">
+        <tr><td height="100" width="40"><b>MAGE</b><br/><font point-size="7" color="#666666">731<br/>individuals</font></td></tr></table></td>
+      <td width="14"></td>
+    </tr></table>>];   // empty right cell = gap before the inputs
+
+  // ---- inputs (column 1)
+  rna [group=expr, label=<<b>RNA-seq</b><br/><font point-size="7" color="#666666">lymphoblastoid<br/>cell lines</font>>];
+  gt  [group=geno, label=<<b>Genotypes</b><br/><font point-size="7" color="#666666">1000 Genomes;<br/>T2T, GRCh38 calls</font>>];
+
+  refs [shape=plain, style="", label=<
+    <table border="0" cellborder="1" cellspacing="1.5" cellpadding="2.5">
+      <tr><td border="0"><b>Reference genomes</b></td></tr>
+      <tr><td bgcolor="#DCEBF7" color="#0072B2"><font point-size="7.5">T2T-CHM13v2.0</font></td></tr>
+      <tr><td bgcolor="#FBE3D6" color="#D55E00"><font point-size="7.5">GRCh38</font></td></tr>
+      <tr><td bgcolor="#FDF0D5" color="#E69F00"><font point-size="7.5">GRCh38 + FixItFelix</font></td></tr>
+    </table>>];
+
+  // ---- per reference
+  subgraph cluster_ref {
+    label=<<font point-size="7" color="#4D4D4D">repeated on each reference</font>>; labelloc=t; labeljust=r;
+    style="rounded,filled"; fillcolor="#F2F2F2"; color="#F2F2F2"; margin=4;
+    align [group=expr, label=<<b>Align and count</b><br/><font point-size="7" color="#666666">STAR 2.7.11b<br/>salmon 1.11.4</font>>];
+    eqtl  [group=expr, label=<<b>Map cis-eQTLs</b><br/><font point-size="7" color="#666666">tensorQTL 1.0.10<br/>66 covariates</font>>];
+    prep  [group=geno, label=<<b>Filter genotypes</b><br/><font point-size="7" color="#666666">plink2 2.0.0a7.8<br/>MAF ≥ 1%</font>>];
+  }
+
+  // ---- per pair
+  subgraph cluster_pair {
+    label=<<font point-size="7" color="#4D4D4D">for each of the three pairs</font>>; labelloc=t; labeljust=r;
+    style="rounded,filled"; fillcolor="#F2F2F2"; color="#F2F2F2"; margin=4;
+    test  [group=expr, label=<<b>Compare effects</b><br/><font point-size="7" color="#666666">paired test,<br/>STAR and salmon</font>>];
+    match [group=geno, label=<<b>Match variants</b><br/><font point-size="7" color="#666666">UCSC liftOver v482,<br/>same alleles</font>>];
+  }
+
+  // ---- output: one gene list per comparison
+  out [shape=plain, style="", group=expr, label=<
+    <table border="1" color="#4D4D4D" style="rounded" cellborder="0" cellspacing="0" cellpadding="4">
+      <tr><td align="left"><b>Reference-</b><br/><b>dependent eQTLs</b></td></tr>
+      <tr><td align="left"><font point-size="7.5"><font color="#0072B2" point-size="9">■</font><font color="#D55E00" point-size="9">■</font>  T2T vs GRCh38</font></td></tr>
+      <tr><td align="left"><font point-size="7.5"><font color="#E69F00" point-size="9">■</font><font color="#D55E00" point-size="9">■</font>  Patched vs GRCh38</font></td></tr>
+      <tr><td align="left"><font point-size="7.5"><font color="#0072B2" point-size="9">■</font><font color="#E69F00" point-size="9">■</font>  <b>T2T vs patched</b></font></td></tr>
+    </table>>];
+
+  // ---- replication (below the output, dashed: a separate cohort)
+  rep [label=<<b>Replication</b><br/><font point-size="7" color="#666666">Geuvadis,<br/>451 individuals</font>>, style="rounded,dashed,filled"];
+
+  // ---- columns (LR: same rank = same column; flat edges run top to bottom)
+  { rank=same; rna; gt; }
+  { rank=same; refs; align; }
+  { rank=same; eqtl; prep; }
+  { rank=same; test; match; }
+  { rank=same; out; rep; }
+  rna -> gt [style=invis];
+
+  // ---- flow
+  cohort:box:e -> rna [headport=w];
+  cohort:box:e -> gt  [headport=w];
+  rna  -> align -> eqtl -> test -> out;     // expression lane
+  gt   -> prep  -> match;                   // genotype lane
+  refs -> align;                            // from above
+  eqtl -> prep  [dir=back];                 // genotypes up into eQTL mapping
+  test -> match [dir=back];                 // matched variants up into the comparison
+  align -> prep [style=invis];              // keeps prep under eqtl
+  out -> rep [style=dashed];                // same pipeline repeated in Geuvadis
+}

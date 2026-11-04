@@ -1,3 +1,3 @@
 sample,run,cohort,batch,read_pairs,read_length,sex,ancestry,lab,sra
-NA19717,SRR19762165,mage,1,21821518,150,male,MXL (AMR),MAGE,/storage/home/yusuf.maulana/research/t2t-eqtl/work/03-expression/sra/mage/SRR19762165/SRR19762165.sra
-NA19711,SRR19762166,mage,1,26229854,150,male,ASW (AFR),MAGE,/storage/home/yusuf.maulana/research/t2t-eqtl/work/03-expression/sra/mage/SRR19762166/SRR19762166.sra
+NA19717,SRR19762165,mage,1,21821518,150,male,MXL (AMR),MAGE,/storage/home/yusuf.maulana/research/t2t-eqtl/work/04-expression/sra/mage/SRR19762165/SRR19762165.sra
+NA19711,SRR19762166,mage,1,26229854,150,male,ASW (AFR),MAGE,/storage/home/yusuf.maulana/research/t2t-eqtl/work/04-expression/sra/mage/SRR19762166/SRR19762166.sra

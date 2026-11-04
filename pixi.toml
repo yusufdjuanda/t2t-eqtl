@@ -32,8 +32,23 @@ r-scales = ">=1.4.0,<2"
 python-pptx = ">=1.0.2,<2"
 defusedxml = ">=0.7.1,<0.8"
 pandoc = ">=3.12.1,<4"
+r-coloc = ">=5.2.3,<6"
+r-susier = ">=0.14.2,<0.15"
+r-gt = ">=1.4.0,<2"
+r-gtsummary = ">=2.6.1,<3"
 
 # tensorQTL 1.0.10 and qtl 0.1.10 are vendored from PyPI wheels (sha256-checked) in envs/vendor/, because pixi
 # cannot reach its conda-PyPI mapping service from Karakoram (connection reset, 2026-10-17).
 [activation.env]
 PYTHONPATH = "$PIXI_PROJECT_ROOT/envs/vendor/tensorqtl-1.0.10:$PIXI_PROJECT_ROOT/envs/vendor/qtl-0.1.10"
+
+# Long-read small-variant calling and phasing for allele-specific expression in SD genes (1KGP ONT CRAMs, 2026-10-29).
+# A separate environment: Clair3 pins its own Python.
+[feature.longread.dependencies]
+clair3 = "*"
+whatshap = "*"
+samtools = "*"
+bcftools = "*"
+
+[environments]
+longread = { features = ["longread"], no-default-feature = true }

@@ -1,0 +1,9 @@
+body { background: #ffffff; }
+.lead { font-size: 1.15rem; color: #3b4a48; }
+table { font-variant-numeric: tabular-nums; }
+.table { font-size: 0.92rem; }
+h1.title { font-weight: 700; }
+.callout { margin-block: 1.4rem; }
+.wide { overflow-x: auto; margin-bottom: 1rem; }
+.wide table { font-size: 0.78rem; white-space: nowrap; }
+.wide table td, .wide table th { padding: 0.2rem 0.5rem; }

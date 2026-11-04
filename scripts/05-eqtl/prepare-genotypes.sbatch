@@ -10,7 +10,7 @@
 #
 #   sbatch scripts/05-eqtl/prepare-genotypes.sbatch <cohort> <t2t|grch38> [chromosomes, default chr1..chr22,chrX]
 #
-# Individuals: the columns of the cohort's expression matrices (results/03-expression/<cohort>/matrices/chm13v2.0/
+# Individuals: the columns of the cohort's expression matrices (results/04-expression/<cohort>/matrices/chm13v2.0/
 # star-counts.tsv.gz), i.e. one per person. Variants: in-cohort MAF >= 0.01; IDs chr:pos:ref:alt (long alleles
 # truncated), the same IDs as the variant-matching tables. Two sets:
 #   <geno>.all.{pgen,pvar,psam}       all variants passing MAF
@@ -37,7 +37,7 @@ echo "start $(date -u +%FT%TZ) $COHORT $GENO $CHROMS"
 
 # first line only, without a pipe that would fail under pipefail when head closes it early
 python3 -c "import gzip,sys; print('\\n'.join(gzip.open(sys.argv[1],'rt').readline().rstrip('\\n').split('\\t')[1:]))" \
-  $ROOT/results/03-expression/$COHORT/matrices/chm13v2.0/star-counts.tsv.gz > $OUT/individuals.txt
+  $ROOT/results/04-expression/$COHORT/matrices/chm13v2.0/star-counts.tsv.gz > $OUT/individuals.txt
 echo "$(wc -l < $OUT/individuals.txt) individuals"
 # sex for plink2 (needed for chrX): samplesheet sex male/female -> 1/2, missing -> 0 (unknown)
 awk -F, 'NR==1 {for (i=1;i<=NF;i++) c[$i]=i; print "#IID\tSEX"; next}

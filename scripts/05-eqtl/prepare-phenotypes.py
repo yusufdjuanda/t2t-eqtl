@@ -2,7 +2,7 @@
 
     pixi run python scripts/05-eqtl/prepare-phenotypes.py --cohort mage --ref chm13v2.0 [--method star|salmon]
 
-Input: results/03-expression/<cohort>/matrices/<ref>/{star-counts,salmon-counts,salmon-tpm}.tsv.gz (merge-expression.py)
+Input: results/04-expression/<cohort>/matrices/<ref>/{star-counts,salmon-counts,salmon-tpm}.tsv.gz (merge-expression.py)
 and data/star-references/<ref>/genes.tsv. GTEx-style processing:
   - genes on chr1-22 and chrX (T2T NC_ names converted to chrN with config/chrom-names-chm13v2.0.tsv, so the BED
     matches the genotype files); rRNA and chrM genes dropped
@@ -32,7 +32,7 @@ def main():
     ap.add_argument("--frac", type=float, default=0.2)
     args = ap.parse_args()
 
-    mdir = ROOT / f"results/03-expression/{args.cohort}/matrices/{args.ref}"
+    mdir = ROOT / f"results/04-expression/{args.cohort}/matrices/{args.ref}"
     counts = pd.read_csv(mdir / f"{args.method}-counts.tsv.gz", sep="\t", index_col=0)
     tpm = pd.read_csv(mdir / "salmon-tpm.tsv.gz", sep="\t", index_col=0).reindex(index=counts.index, columns=counts.columns)
     genes = pd.read_csv(ROOT / f"data/star-references/{args.ref}/genes.tsv", sep="\t", dtype={"gene_ncbi": str})

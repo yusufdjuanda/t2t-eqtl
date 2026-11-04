@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def cpm_by_geneid(cohort, ref, method):
-    c = pd.read_csv(ROOT / f"results/03-expression/{cohort}/matrices/{ref}/{method}-counts.tsv.gz", sep="\t", index_col=0)
+    c = pd.read_csv(ROOT / f"results/04-expression/{cohort}/matrices/{ref}/{method}-counts.tsv.gz", sep="\t", index_col=0)
     g = pd.read_csv(ROOT / f"data/star-references/{ref}/genes.tsv", sep="\t", dtype={"gene_ncbi": str})
     c = c.groupby(c.index.map(dict(zip(g.gene_id, g.gene_ncbi)))).sum()
     return c / c.sum() * 1e6

@@ -5,7 +5,7 @@
 Uses real T2T genotypes (chr22, results/01-genotypes/chm13v2.0/expression/) of 300 MAGE individuals and 300 real chm13v2.0 genes on chr22.
 Expression is simulated: for 60 genes, log-expression depends on one real common variant (MAF >= 0.1, within 200 kb
 of the TSS) with effect 0.3-0.8 SD per allele; 240 genes have no genetic effect. Counts ~ negative binomial.
-Writes results/03-expression/simtest/matrices/chm13v2.0/{star-counts,salmon-counts,salmon-tpm}.tsv.gz,
+Writes results/04-expression/simtest/matrices/chm13v2.0/{star-counts,salmon-counts,salmon-tpm}.tsv.gz,
 config/samplesheets/simtest.csv (sample, sex) and results/05-eqtl/simtest/planted.tsv (gene, variant, beta).
 Run the pipeline with chromosome chr22 only; a working pipeline finds most planted genes and few others.
 """
@@ -60,7 +60,7 @@ cdf = pd.DataFrame(counts, index=genes.gene_id, columns=inds)
 cdf.index.name = "gene_id"
 tpm = cdf / cdf.sum() * 1e6
 
-out = ROOT / "results/03-expression/simtest/matrices/chm13v2.0"
+out = ROOT / "results/04-expression/simtest/matrices/chm13v2.0"
 out.mkdir(parents=True, exist_ok=True)
 for name, m in [("star-counts", cdf), ("salmon-counts", cdf), ("salmon-tpm", tpm)]:
     m.round(3).to_csv(out / f"{name}.tsv.gz", sep="\t", compression="gzip")

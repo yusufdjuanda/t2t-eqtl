@@ -96,7 +96,7 @@ def main():
     d = ROOT / f"results/05-eqtl/{args.cohort}/chm13v2.0/{args.method}"
 
     # samples, ancestry, covariates, expression
-    runs = pd.read_csv(ROOT / f"results/03-expression/{args.cohort}/matrices/runs.tsv", sep="\t")
+    runs = pd.read_csv(ROOT / f"results/04-expression/{args.cohort}/matrices/runs.tsv", sep="\t")
     pop = runs.drop_duplicates("sample").set_index("sample")["ancestry"].str.split(" ").str[0]
     ph = pd.read_csv(d / "phenotypes.bed.gz", sep="\t").set_index("phenotype_id")
     cov = pd.read_csv(d / "covariates.tsv", sep="\t", index_col=0).T

@@ -11,7 +11,7 @@
 #   panel     sample names in the panel BCF header (3,202; bcftools query -l reads the header only)
 # Writes config/samples/expression-individuals.tsv, one row per individual in either cohort:
 #   sample  mage  geuvadis  t2t_panel  included      (yes/no; included = in a cohort and in the panel)
-# Read by scripts/03-expression/make-cohort-sheets.py (which individuals' runs go into the samplesheets) and by the
+# Read by scripts/04-expression/make-cohort-sheets.py (which individuals' runs go into the samplesheets) and by the
 # genotype subset scripts (01-genotypes/chm13v2.0/subset-genotypes.sbatch, 01-genotypes/grch38/subset-genotypes.sbatch).
 
 set -euo pipefail

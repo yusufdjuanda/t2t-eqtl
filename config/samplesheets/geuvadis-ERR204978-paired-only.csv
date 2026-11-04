@@ -1,0 +1,2 @@
+sample,run,cohort,batch,read_pairs,read_length,sex,ancestry,lab,sra
+NA20527,ERR204978,geuvadis,12,36380059,76,male,Tuscan,2,/storage/home/yusuf.maulana/research/t2t-eqtl/work/04-expression/sra/geuvadis/ERR204978/ERR204978.sra
