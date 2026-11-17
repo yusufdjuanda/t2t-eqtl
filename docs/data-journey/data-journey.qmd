@@ -1066,6 +1066,67 @@ This step is **not enough**: PWP2 is an eGene on every reference. The artefact i
 3. multiply B's slope by sign(r), so both slopes describe the same allele;
 4. keep the pair (A's lead or B's lead) with the larger difference.
 
+### Swapped alleles, step by step (ASAH2) {#sec-swap}
+
+**Why swaps exist.** A VCF calls the reference genome's own base `REF` and the other base `ALT`. CHM13 and GRCh38 were built from different people, so at about 20% of common SNPs they carry different bases. At ASAH2's lead variant (rs9794140), CHM13 has `A` and GRCh38 has `C`:
+
+| | Position | REF | ALT | Genotype 0/1/2 counts copies of |
+|---|---|---|---|---|
+| T2T | chr10:51633608 | A | C | **C** |
+| GRCh38 | chr10:50785045 | C | A | **A** |
+
+**1. Nothing is switched before mapping.** Each reference's eQTLs are mapped with that reference's own genotype file, and nobody's genotype is recoded. The same person simply gets two numbers that always add up to 2:
+
+| Person | Alleles | T2T dosage (copies of C) | GRCh38 dosage (copies of A) | ASAH2 CPM, T2T | ASAH2 CPM, patched GRCh38 |
+|---|---|---:|---:|---:|---:|
+| HG00121 | A/A | 0 | 2 | 0.17 | 1.21 |
+| HG00096 | A/C | 1 | 1 | 0.40 | 1.64 |
+| HG00105 | C/C | 2 | 0 | 1.13 | 0.21 |
+
+Across all 731 people the two dosages mirror each other exactly. The one exception is a person called A/A on T2T and A/C on GRCh38, a genotype-calling difference:
+
+| T2T dosage ↓ / GRCh38 dosage → | 0 | 1 | 2 |
+|---|---:|---:|---:|
+| **0** (A/A) | 0 | 1 | 118 |
+| **1** (A/C) | 0 | 293 | 0 |
+| **2** (C/C) | 319 | 0 | 0 |
+
+**2. Each reference gives a slope per its own ALT allele.** tensorQTL fits expression = intercept + slope × dosage (+ covariates), separately on each reference:
+
+- T2T: **+0.77 SD per C**: C/C people have more ASAH2.
+- Patched GRCh38: **+0.53 SD per A**: A/A people have more ASAH2.
+
+Both numbers are correct, but they answer questions about different alleles, so they can't be compared directly.
+
+**3. Pair the two variants and check the direction with real genotypes.** `match-variants.py` pairs T2T `A>C` with GRCh38 `C>A` and labels it `swapped`. `compare-effects.py` does not trust the label. It correlates the two dosage columns across the 731 people:
+
+- geno_r ≈ +1: both count the same allele, so keep B's slope;
+- geno_r ≈ −1: they count opposite alleles, so multiply B's slope by −1. For ASAH2, **geno_r = −0.9987**;
+- |geno_r| < 0.9: probably not the same variant, so the gene is not compared at this pair.
+
+**4. Why multiplying by −1 is exact.** Copies of A = 2 − copies of C. Substituting into the GRCh38 model:
+
+$$
+y = a + b\,(\text{copies of A}) = a + b\,(2 - \text{copies of C}) = (a + 2b) - b\,(\text{copies of C})
+$$
+
+So the slope per C is exactly −b. The standard error is unchanged, the p-value is unchanged, and only the intercept moves. Nothing has to be re-run:
+
+- GRCh38: +0.53 per A → **−0.53 per C**.
+- T2T: +0.77 per C.
+- **Δ = 0.77 − (−0.53) = 1.30**, a reversal: C raises ASAH2 on T2T and lowers it on GRCh38.
+
+The same picture with medians by genotype, both written per C:
+
+| | A/A | A/C | C/C |
+|---|---:|---:|---:|
+| ASAH2 CPM, T2T | 0.21 | 0.48 | 0.90 |
+| ASAH2 CPM, patched GRCh38 | 1.57 | 1.25 | 0.70 |
+
+**5. The paired test uses the same flip.** `paired-test.py` multiplies the GRCh38 dosage column itself by sign(geno_r) before fitting (`G[b] * sign(geno_r)`), so both regressions use "copies of C". The covariance term −2cov is then computed on the same allele too.
+
+**6. The common allele is always T2T's ALT.** Every compared slope in `effects-*.tsv`, `robust-*.tsv` and the slides is per **T2T ALT allele**. That is why the top-10 table and Figs 22 and 25 call C the "effect allele" for ASAH2, even though C is GRCh38's REF. Letters (A/A, A/C, C/C) are used instead of "hom REF / hom ALT" because REF and ALT mean opposite things on the two references.
+
 ::: {.callout-warning}
 ## A bug caught by checking against raw data
 The first version flipped signs using the matching table's "swapped" label. Some indels are written differently by the two panels (T2T `C:CA` vs GRCh38 `CA:C`) and were labelled swapped although their genotypes correlate at r = +1. Eleven genes with identical effects became false "opposite-sign changes". The sign now comes from the genotype correlation itself.
