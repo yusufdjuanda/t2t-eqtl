@@ -6,10 +6,11 @@
  *       --input config/samplesheets/mage.csv --batch 1 -resume
  *   nextflow run scripts/04-expression/nextflow/main.nf -profile slurm,test -resume      (2-run test)
  *
+ * Tools come from the project pixi environment (conf/base.config); `-profile modules` uses cluster modules instead.
  * Normally launched per batch by scripts/04-expression/run-batch.sbatch. Inputs are the validated .sra files
  * from scripts/04-expression/fetch-sra-batch.sbatch (samplesheet column `sra`). Layout:
  *   main.nf                          entry point (this file)
- *   nextflow.config                  parameters and profiles (slurm, test)
+ *   nextflow.config                  parameters and profiles (slurm, test, modules)
  *   conf/base.config                 per-process resources
  *   workflows/expression.nf          samplesheet checks, skip completed runs, run QUANTIFY_RUN, summaries
  *   modules/local/quantify_run/      one task per run: fasterq-dump, then STAR + salmon per reference

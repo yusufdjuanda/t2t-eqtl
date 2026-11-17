@@ -1,11 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=t2t-ontcall
-#SBATCH --partition=cpu
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 #SBATCH --time=04:00:00
-#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/06-compare/%x_%A_%a.out
-#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/06-compare/%x_%A_%a.err
+#SBATCH --output=logs/06-compare/%x_%A_%a.out
+#SBATCH --error=logs/06-compare/%x_%A_%a.err
 # Step 6: small variants from 1KGP ONT long reads in the ASE target regions, one individual per array task.
 #
 #   sbatch --array=1-<n>%20 scripts/06-compare/ont-call.sbatch
@@ -18,7 +17,8 @@
 # Output: results/06-compare/ase/ont/<id>/{reads.bam(.bai), clair3.vcf.gz(.tbi), clair3.phased.vcf.gz(.tbi)},
 # complete.txt (individuals that have it are skipped).
 set -euo pipefail
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}}
+source "$ROOT/scripts/lib/common.sh"
 T=$ROOT/results/06-compare/ase/targets
 ID=$(awk -F'\t' 'NR > 1 && $2 == "True" {print $1}' $T/individuals.tsv | sed -n "${SLURM_ARRAY_TASK_ID}p")
 [[ -n $ID ]] || { echo "no individual for task $SLURM_ARRAY_TASK_ID" >&2; exit 1; }
@@ -26,7 +26,7 @@ OUT=$ROOT/results/06-compare/ase/ont/$ID
 [[ -f $OUT/complete.txt ]] && { echo "$ID complete, skipped"; exit 0; }
 REF=$ROOT/data/external/1kg-ont-vienna/1KG_ONT_VIENNA_t2t.fa
 URL=http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1KG_ONT_VIENNA/t2t/$ID.t2t.cram
-export TMPDIR=/scratch/$USER/t2t-eqtl/tmp/ont-$SLURM_ARRAY_JOB_ID-$ID; mkdir -p $TMPDIR; trap 'rm -rf $TMPDIR' EXIT
+t2t_tmpdir "ont-$SLURM_ARRAY_JOB_ID-$ID"
 mkdir -p $OUT
 cd $TMPDIR
 echo "start $(date -u +%FT%TZ) $ID"

@@ -1559,7 +1559,7 @@ A reversal says the two references disagree; it does not say who is right. **All
 
 # Stage 07 — Presentation {#sec-presentation}
 
-`scripts/07-presentation/`: `prepare-figure-data.py` → tables in `results/07-presentation/data/`; `make-figures.R` → 13 figures; `build-workbook.py` → project overview workbook; `build-deck.py` → talk; the manuscript is `results/07-presentation/manuscript/t2t-eqtl-manuscript.docx`.
+`scripts/07-presentation/`: `prepare-figure-data.py` → tables in `results/07-presentation/data/`; `make-figures.R` → 13 figures; `build-workbook.py` → project overview workbook; the manuscript is `results/07-presentation/manuscript/t2t-eqtl-manuscript.docx`. All of it is rebuilt with `pixi run reproduce`.
 
 # The whole journey in numbers {#sec-summary}
 

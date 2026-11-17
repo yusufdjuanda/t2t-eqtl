@@ -1,20 +1,20 @@
 #!/bin/bash
 #SBATCH --job-name=t2t-phenocov
-#SBATCH --partition=cpu
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=48G
 #SBATCH --time=02:00:00
-#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/05-eqtl/%x_%j.out
-#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/05-eqtl/%x_%j.err
+#SBATCH --output=logs/05-eqtl/%x_%j.out
+#SBATCH --error=logs/05-eqtl/%x_%j.err
 # Step 5: phenotype BED and covariates for one cohort and quantification method, on all three references.
 #
-#   sbatch scripts/05-eqtl/prepare-phenotypes-covariates.sbatch <cohort> [method=star]
+#   scripts/submit.sh scripts/05-eqtl/prepare-phenotypes-covariates.sbatch <cohort> [method=star]
 #
 # Runs prepare-phenotypes.py then make-covariates.py per reference (genotype PCs are reused from the cohort cache).
 set -euo pipefail
 COHORT=${1:?cohort}; METHOD=${2:-star}
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
-export TMPDIR=/scratch/$USER/t2t-eqtl/tmp/$SLURM_JOB_ID; mkdir -p $TMPDIR; trap 'rm -rf $TMPDIR' EXIT
+ROOT=${T2T_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}}
+source "$ROOT/scripts/lib/common.sh"
+t2t_tmpdir "$SLURM_JOB_ID"
 echo "start $(date -u +%FT%TZ) $COHORT $METHOD"
 cd $ROOT
 for r in chm13v2.0 grch38 grch38-ffx; do

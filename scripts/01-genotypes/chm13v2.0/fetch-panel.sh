@@ -6,8 +6,10 @@
 # curl retries with a short fixed delay and resumes partial files (-C -). Plain HTTP
 # is refused by the bucket. Rerunning is safe.
 set -euo pipefail
+ROOT=${T2T_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}
+source "$ROOT/scripts/lib/common.sh"
 
-dest=${1:-/storage/home/yusuf.maulana/research/t2t-eqtl/data/external/1kgp-chm13v2.0-phased-shapeit5-v1.1}
+dest=${1:-$ROOT/data/external/1kgp-chm13v2.0-phased-shapeit5-v1.1}
 base=https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/variants/1000_Genomes_Project/chm13v2.0/Phased_SHAPEIT5_v1.1
 bcf=1KGP.CHM13v2.0.whole_genome.recalibrated.snp_indel.pass.phased.native_maps.3202.bcf.gz
 

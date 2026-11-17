@@ -1,9 +1,41 @@
+# Large project folders: links to project storage or plain folders, made by `pixi run setup` (config/site.env).
+# Never committed: inputs are listed in config/data-sources.tsv, results are rebuilt by the scripts.
+/data
+/results
+/logs
+/work
+
+# Site settings (paths, partitions); template: config/site.env.example
+/config/site.env
+
 # pixi environments
 .pixi/*
 !.pixi/config.toml
 
-# Python bytecode
+# Python
 __pycache__/
+*.pyc
+
+# R
+Rplots.pdf
+.Rhistory
+.RData
+
+# Nextflow (when launched from the project root)
+.nextflow/
+.nextflow.log*
+/scripts/04-expression/nextflow/work/
+
+# Quarto intermediates
+/.quarto/
+docs/data-journey/data-journey_files/
+docs/data-journey/.quarto/
+
+# Editors and OS
+.DS_Store
+*.swp
+.vscode/
+.idea/
 
 # Claude Code project instructions (local only)
 CLAUDE.md

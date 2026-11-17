@@ -25,7 +25,7 @@ process QUANTIFY_RUN {
     def idx = "${params.star_prefix}${meta.read_length - 1}"
     """
     set -euo pipefail
-    export TMPDIR=/scratch/\$USER/t2t-eqtl/tmp/nf-\${SLURM_JOB_ID:-local}-${run}
+    export TMPDIR=${params.tmp}/nf-\${SLURM_JOB_ID:-local}-${run}
     mkdir -p \$TMPDIR; trap 'rm -rf \$TMPDIR' EXIT
     mkdir -p ${run}
     echo "start \$(date -u +%FT%TZ) ${run} ${meta.sample} ${meta.cohort}" > ${run}/log.txt

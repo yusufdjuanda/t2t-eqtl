@@ -1,11 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=t2t-aserna
-#SBATCH --partition=cpu
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=48G
 #SBATCH --time=08:00:00
-#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/06-compare/%x_%A_%a.out
-#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/06-compare/%x_%A_%a.err
+#SBATCH --output=logs/06-compare/%x_%A_%a.out
+#SBATCH --error=logs/06-compare/%x_%A_%a.err
 # Step 6: RNA-seq realignment for allele-specific expression (ASE), one run per array task.
 #
 #   sbatch --array=1-<n>%10 scripts/06-compare/ase-realign.sbatch [runs.tsv]
@@ -17,18 +16,19 @@
 # Output: results/06-compare/ase/rna/<run>/<ref>/{targets.bam(.bai), Log.final.out}, complete.txt (runs that have it
 # are skipped). Waits while scratch has less than MIN_FREE_GB (default 200) free.
 set -euo pipefail
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}}
+source "$ROOT/scripts/lib/common.sh"
 RUNS=${1:-$ROOT/results/06-compare/ase/targets/runs.tsv}
 MIN_FREE_GB=${MIN_FREE_GB:-200}
 read -r RUN SAMPLE PAIRS RL _ < <(awk -F'\t' -v i=$SLURM_ARRAY_TASK_ID 'NR == i + 1' $RUNS)
 OUT=$ROOT/results/06-compare/ase/rna/$RUN
 [[ -f $OUT/complete.txt ]] && { echo "$RUN complete, skipped"; exit 0; }
-module load sra-tools/3.4.1 star/2.7.11b samtools/1.23.1
-export TMPDIR=/scratch/$USER/t2t-eqtl/tmp/ase-$SLURM_ARRAY_JOB_ID-$RUN; mkdir -p $TMPDIR; trap 'rm -rf $TMPDIR' EXIT
+t2t_env bio   # STAR, salmon, samtools, ... from pixi.toml (published runs: cluster modules of the same versions)
+t2t_tmpdir "ase-$SLURM_ARRAY_JOB_ID-$RUN"
 mkdir -p $OUT
 echo "start $(date -u +%FT%TZ) $RUN $SAMPLE"
 
-while (( $(df --output=avail -BG /scratch | tail -1 | tr -dc 0-9) < MIN_FREE_GB )); do
+while (( $(df --output=avail -BG "$T2T_SCRATCH" | tail -1 | tr -dc 0-9) < MIN_FREE_GB )); do
   echo "$(date -u +%T) waiting: scratch below ${MIN_FREE_GB}G free" >&2; sleep 600
 done
 for i in $(seq 1 100); do

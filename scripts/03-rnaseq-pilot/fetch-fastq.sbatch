@@ -1,24 +1,24 @@
 #!/bin/bash
 #SBATCH --job-name=t2t-fetch
-#SBATCH --partition=cpu
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=4G
 #SBATCH --time=12:00:00
-#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/03-rnaseq-pilot/%x_%j.out
-#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/03-rnaseq-pilot/%x_%j.err
+#SBATCH --output=logs/03-rnaseq-pilot/%x_%j.out
+#SBATCH --error=logs/03-rnaseq-pilot/%x_%j.err
 # Step 2: download Geuvadis FASTQs from ENA and check their md5 against ENA.
 #
-#   sbatch scripts/03-rnaseq-pilot/fetch-fastq.sbatch [sample sheet]
+#   scripts/submit.sh scripts/03-rnaseq-pilot/fetch-fastq.sbatch [sample sheet]
 #
 # Sample sheet (default config/samples/pilot-5.tsv): run sample ancestry sex lab read_pairs url_1 url_2 md5_1 md5_2.
 # Files go to work/03-rnaseq-pilot/fastq/<run>/ (scratch), one stream per CPU (default 2), resumed on failure.
 # ENA refused or reset most connections when 10 streams were opened at once (2026-10-17), so keep this low.
 # A verified file is made read-only; rerunning skips it. Exits non-zero if any md5 fails.
 set -euo pipefail
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}}
+source "$ROOT/scripts/lib/common.sh"
 SHEET=${1:-$ROOT/config/samples/pilot-5.tsv}
 OUT=$ROOT/work/03-rnaseq-pilot/fastq
-export TMPDIR=/scratch/$USER/t2t-eqtl/tmp/$SLURM_JOB_ID; mkdir -p $TMPDIR; trap 'rm -rf $TMPDIR' EXIT
+t2t_tmpdir "$SLURM_JOB_ID"
 echo "start $(date -u +%FT%TZ)"
 
 fetch_one() {  # run url md5

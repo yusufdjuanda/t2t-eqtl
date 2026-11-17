@@ -1,15 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=t2t-geno
-#SBATCH --partition=cpu
 #SBATCH --cpus-per-task=23
 #SBATCH --mem=32G
 #SBATCH --time=08:00:00
-#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/01-genotypes/chm13v2.0/%x_%j.out
-#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/01-genotypes/chm13v2.0/%x_%j.err
+#SBATCH --output=logs/01-genotypes/chm13v2.0/%x_%j.out
+#SBATCH --error=logs/01-genotypes/chm13v2.0/%x_%j.err
 # Step 1: subset the phased 1KGP T2T-CHM13v2.0 panel (SHAPEIT5 v1.1, 3,202 samples) to the
 # expression individuals (MAGE + Geuvadis), and to NA12878 for allele-specific binding, then count variants by class.
 #
-#   sbatch scripts/01-genotypes/chm13v2.0/subset-genotypes.sbatch [output folder] [sample list]
+#   scripts/submit.sh scripts/01-genotypes/chm13v2.0/subset-genotypes.sbatch [output folder] [sample list]
 #   defaults: results/01-genotypes/chm13v2.0, and the included individuals of
 #   config/samples/expression-individuals.tsv (1,089; written by make-sample-lists.sh)
 #   (the first run, 2026-10-13, used the 451 Geuvadis individuals only; retired 2026-10-27)
@@ -22,12 +21,13 @@
 # SYNTENIC (INFO flag set by the panel authors) = in sequence syntenic with GRCh38; absent = T2T-only sequence
 # (source: chm13v2-unique_to_hg38.bed). Output: summary.tsv, all chromosomes combined.
 set -euo pipefail
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}}
+source "$ROOT/scripts/lib/common.sh"
 OUT=${1:-$ROOT/results/01-genotypes/chm13v2.0}
 PANEL=$ROOT/data/external/1kgp-chm13v2.0-phased-shapeit5-v1.1/1KGP.CHM13v2.0.whole_genome.recalibrated.snp_indel.pass.phased.native_maps.3202.bcf.gz
 SAMPLES=${2:-}
-module load bcftools/1.23.1
-export TMPDIR=/scratch/$USER/t2t-eqtl/tmp/$SLURM_JOB_ID; mkdir -p $TMPDIR; trap 'rm -rf $TMPDIR' EXIT
+t2t_env bio   # STAR, salmon, samtools, ... from pixi.toml (published runs: cluster modules of the same versions)
+t2t_tmpdir "$SLURM_JOB_ID"
 mkdir -p $OUT/expression $OUT/na12878 $TMPDIR/counts
 # default sample list: included individuals of config/samples/expression-individuals.tsv (make-sample-lists.sh)
 if [ -z "$SAMPLES" ]; then

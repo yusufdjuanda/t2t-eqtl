@@ -15,12 +15,14 @@
 set -euo pipefail
 COHORT=${1:?cohort}; METHODS=${2:-star,salmon}; VARIANTS=${3:-matched}
 CHROMS=${4:-$(printf 'chr%s,' {1..22} | sed 's/,$//')}
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}
+source "$ROOT/scripts/lib/common.sh"
+cd "$ROOT"   # batch scripts write logs/ relative to the submission folder
 NCHR=$(tr ',' '\n' <<< "$CHROMS" | wc -l)
 [[ $CHROMS == $(printf 'chr%s,' $(seq 1 $NCHR) | sed 's/,$//') ]] || { echo "chromosomes must be chr1..chrN (array index = chromosome - 1)" >&2; exit 1; }
 LOG=$ROOT/logs/05-eqtl/submitted-$COHORT-$(date -u +%Y%m%dT%H%M%SZ).tsv
 printf 'step\targs\tjob\n' > $LOG
-sub() { local step=$1; shift; local j; j=$(sbatch --parsable "$@"); printf '%s\t%s\t%s\n' "$step" "${*: -4}" "$j" >> $LOG; echo $j; }
+sub() { local step=$1; shift; local j; j=$("$ROOT/scripts/submit.sh" --parsable "$@"); printf '%s\t%s\t%s\n' "$step" "${*: -4}" "$j" >> $LOG; echo $j; }
 
 M=$(sub merge $ROOT/scripts/04-expression/merge-expression.sbatch $COHORT)
 G1=$(sub genotypes --dependency=afterok:$M $ROOT/scripts/05-eqtl/prepare-genotypes.sbatch $COHORT t2t $CHROMS)
@@ -37,9 +39,13 @@ for METHOD in ${METHODS//,/ }; do
   CMP+=($(sub compare --dependency=afterok:$(IFS=:; echo "${C[*]}") $ROOT/scripts/06-compare/compare-eqtl.sbatch $COHORT $METHOD $VARIANTS))
 done
 if [[ $METHODS == *star* && $METHODS == *salmon* ]]; then
-  sub combine --dependency=afterok:$(IFS=:; echo "${CMP[*]}") --job-name=t2t-combine --partition=cpu --cpus-per-task=2 --mem=16G \
-    --time=01:00:00 --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/06-compare/%x_%j.out \
-    --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/06-compare/%x_%j.err \
-    --wrap="bash -c 'cd $ROOT && pixi run python scripts/06-compare/combine-methods.py --cohort $COHORT --variants $VARIANTS'" >/dev/null
+  # a one-line job without its own script, so sbatch is called directly with the site's partition and account
+  mkdir -p logs/06-compare
+  J=$(sbatch --parsable ${T2T_PARTITION:+--partition=$T2T_PARTITION} ${T2T_ACCOUNT:+--account=$T2T_ACCOUNT} \
+    --dependency=afterok:$(IFS=:; echo "${CMP[*]}") --job-name=t2t-combine --cpus-per-task=2 --mem=16G \
+    --time=01:00:00 --output=logs/06-compare/%x_%j.out \
+    --error=logs/06-compare/%x_%j.err \
+    --wrap="bash -c 'cd $ROOT && pixi run python scripts/06-compare/combine-methods.py --cohort $COHORT --variants $VARIANTS'")
+  printf 'combine\t%s\t%s\n' "$COHORT $VARIANTS" "$J" >> $LOG
 fi
 cat $LOG

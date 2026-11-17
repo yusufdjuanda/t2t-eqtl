@@ -13,11 +13,12 @@
 #   gene_ncbi  partners_t2t  partners_grch38  gained_on_t2t  lost_on_t2t  overlap_differs
 # (partners = GeneIDs of exon-overlapping genes, ';'-separated; grch38-ffx uses the grch38 annotation).
 set -euo pipefail
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}
+source "$ROOT/scripts/lib/common.sh"
 OUT=$ROOT/results/06-compare
-module load bedtools/2.31.1
-mkdir -p $OUT /scratch/$USER/t2t-eqtl/tmp
-TMP=$(mktemp -d -p /scratch/$USER/t2t-eqtl/tmp); trap 'rm -rf "$TMP"' EXIT
+t2t_env bio   # STAR, salmon, samtools, ... from pixi.toml (published runs: cluster modules of the same versions)
+mkdir -p "$OUT" "$T2T_TMP"
+TMP=$(mktemp -d -p "$T2T_TMP"); trap 'rm -rf "$TMP"' EXIT
 
 for ref in chm13v2.0 grch38; do
   # exons -> BED (chrom, start, end, gene_id), sorted

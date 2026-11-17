@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+message: "If you use this code or its results, please cite it as below."
+type: software
+title: "t2t-eqtl: T2T-native cis-eQTL mapping in lymphoblastoid cell lines"
+abstract: >-
+  RNA-seq of 731 MAGE and 451 Geuvadis lymphoblastoid cell lines and 1000 Genomes genotypes, processed from the same
+  raw reads on T2T-CHM13v2.0, GRCh38 and FixItFelix-patched GRCh38, to measure which cis-eQTLs change with the
+  reference genome beyond the GRCh38 errors that FixItFelix already patched.
+authors:
+  - family-names: Maulana
+    given-names: Yusuf
+version: 0.1.0
+license: MIT
+repository-code: "https://github.com/yusufdjuanda/t2t-eqtl"
+keywords:
+  - eQTL
+  - T2T-CHM13
+  - reference genome
+  - segmental duplications
+  - lymphoblastoid cell lines
+references:
+  - type: article
+    title: "FixItFelix: improving genomic analysis by fixing reference errors"
+    authors:
+      - family-names: Behera
+        given-names: Sairam
+    journal: "Genome Biology"
+    year: 2023
+    doi: "10.1186/s13059-023-02863-7"
+  - type: software
+    title: "tensorQTL"
+    authors:
+      - family-names: Taylor-Weiner
+        given-names: Amaro
+      - family-names: Aguet
+        given-names: François
+    version: "1.0.10"
+    url: "https://github.com/broadinstitute/tensorqtl"

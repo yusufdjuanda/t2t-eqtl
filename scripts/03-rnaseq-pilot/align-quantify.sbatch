@@ -1,16 +1,15 @@
 #!/bin/bash
 #SBATCH --job-name=t2t-rnaaln
-#SBATCH --partition=cpu
 #SBATCH --array=0-9%2
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=48G
 #SBATCH --time=03:00:00
-#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/03-rnaseq-pilot/%x_%A_%a.out
-#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/03-rnaseq-pilot/%x_%A_%a.err
+#SBATCH --output=logs/03-rnaseq-pilot/%x_%A_%a.out
+#SBATCH --error=logs/03-rnaseq-pilot/%x_%A_%a.err
 # Step 2: align one Geuvadis run to one reference with STAR and quantify it two ways.
 # Array task i = sample row i/2 of the sheet x reference i%2 (0 = chm13v2.0, 1 = grch38); 5 samples -> 0-9.
 #
-#   sbatch scripts/03-rnaseq-pilot/align-quantify.sbatch [sample sheet]
+#   scripts/submit.sh scripts/03-rnaseq-pilot/align-quantify.sbatch [sample sheet]
 #
 # Inputs: verified FASTQs from fetch-sra.sbatch; data/star-references/<ref>/ from prepare-star-references.sbatch.
 # Same STAR version, index parameters and alignment parameters (ENCODE long-RNA settings) on both references.
@@ -19,7 +18,8 @@
 # Output: results/03-rnaseq-pilot/<ref>/<run>/  Log.final.out  ReadsPerGene.out.tab  SJ.out.tab  idxstats.tsv  salmon/
 #         work/03-rnaseq-pilot/bam/<ref>/<run>.bam(.bai)  genome BAM on scratch, for inspecting loci
 set -euo pipefail
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}}
+source "$ROOT/scripts/lib/common.sh"
 SHEET=${1:-$ROOT/config/samples/pilot-5.tsv}
 REFS_LIST=(chm13v2.0 grch38)
 REF=${REFS_LIST[$((SLURM_ARRAY_TASK_ID % 2))]}
@@ -29,8 +29,8 @@ SREF=$ROOT/data/star-references/$REF
 FQ=$ROOT/work/03-rnaseq-pilot/fastq/$RUN
 OUT=$ROOT/results/03-rnaseq-pilot/$REF/$RUN
 BAMDIR=$ROOT/work/03-rnaseq-pilot/bam/$REF
-module load star/2.7.11b salmon/1.11.4 samtools/1.23.1
-export TMPDIR=/scratch/$USER/t2t-eqtl/tmp/${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}; mkdir -p $TMPDIR; trap 'rm -rf $TMPDIR' EXIT
+t2t_env bio   # STAR, salmon, samtools, ... from pixi.toml (published runs: cluster modules of the same versions)
+t2t_tmpdir "${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
 mkdir -p $OUT $BAMDIR
 echo "start $(date -u +%FT%TZ) $RUN $REF"
 

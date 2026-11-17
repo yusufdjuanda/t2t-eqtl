@@ -211,7 +211,7 @@ c = ws.cell(r, 5, f"=SUM(E4:E{r-2})"); c.font = BOLD
 ws = wb.create_sheet("Data sources")
 ws.cell(1, 1, "Where every dataset comes from").font = TITLE
 ws.cell(2, 1, "Full details and exact download commands: docs/t2t-eqtl.md section 4. Paths are relative to the project "
-              "root; data/ lives on /storage/projects/yusuf.maulana/t2t-eqtl/.").font = NOTE
+              "root; data/ may link to project storage (config/site.env, pixi run setup).").font = NOTE
 src = [
  ("RNA-seq", "MAGE RNA-seq (discovery cohort)", "LCL RNA-seq of 731 1000 Genomes individuals, 26 populations, one lab; 779 runs, 2x150 bp, unstranded, NovaSeq 6000, median 28.4 M read pairs",
   "Taylor et al. 2024, Nature (MAGE)", "NCBI SRA PRJNA851328", "run report 2026-10-17", "2.51 TB reads (transient on scratch)",

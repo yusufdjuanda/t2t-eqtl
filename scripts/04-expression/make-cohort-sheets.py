@@ -9,7 +9,7 @@ Writes:
 Only individuals with included = yes in config/samples/expression-individuals.tsv (in the T2T genotype panel;
 written by scripts/01-genotypes/make-sample-lists.sh) are kept, for both cohorts.
 Columns: sample run cohort batch read_pairs read_length sex ancestry lab sra
-(sra = where fetch-sra-batch.sbatch puts the validated .sra file). One row per sequencing run; individuals
+(sra = where fetch-sra-batch.sbatch puts the validated .sra file, relative to the project root). One row per sequencing run; individuals
 with several runs (MAGE 24 with 3; Geuvadis 173 with 2 or 8) are quantified per run and merged later.
 read_pairs is ENA's count, which fetch/quantify checks exactly. batch = consecutive groups of --batch-size runs,
 in sheet order (MAGE sorted by run accession; Geuvadis by run accession).
@@ -55,7 +55,8 @@ geu = pd.DataFrame({"run": g.run_accession, "sample": g["sample"], "cohort": "ge
 for name, df in [("mage", mage), ("geuvadis", geu)]:
     df = df.sort_values("run").reset_index(drop=True)
     df["batch"] = df.index // args.batch_size + 1
-    df["sra"] = [str(SRA_DIR / name / r / f"{r}.sra") for r in df.run]
+    # relative to the project root, so the sheets work wherever the project is (Nextflow resolves them against --root)
+    df["sra"] = [str((SRA_DIR / name / r / f"{r}.sra").relative_to(ROOT)) for r in df.run]
     out = ROOT / "config/samplesheets"; out.mkdir(exist_ok=True)
     df[COLS].to_csv(out / f"{name}.csv", index=False)
     if name == "mage":

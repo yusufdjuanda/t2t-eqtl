@@ -1,14 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=t2t-sra
-#SBATCH --partition=cpu
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=16G
 #SBATCH --time=06:00:00
-#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/03-rnaseq-pilot/%x_%j.out
-#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/03-rnaseq-pilot/%x_%j.err
+#SBATCH --output=logs/03-rnaseq-pilot/%x_%j.out
+#SBATCH --error=logs/03-rnaseq-pilot/%x_%j.err
 # Step 2: get Geuvadis reads from NCBI SRA and write them as gzipped paired FASTQs.
 #
-#   sbatch scripts/03-rnaseq-pilot/fetch-sra.sbatch [sample sheet]
+#   scripts/submit.sh scripts/03-rnaseq-pilot/fetch-sra.sbatch [sample sheet]
 #
 # Replaces fetch-fastq.sbatch (ENA), which gave one connection at ~0.75 MB/s on 2026-10-17; NCBI gave ~12 MB/s.
 # NCBI serves .sra files from AWS S3, where connections from Karakoram are often reset, so prefetch is retried
@@ -17,12 +16,13 @@
 #   -> read pairs must equal read_pairs in the sheet (ENA's count) -> FASTQs read-only -> .sra deleted
 # Output: work/03-rnaseq-pilot/fastq/<run>/<run>_{1,2}.fastq.gz. A run with read-only FASTQs is skipped on rerun.
 set -euo pipefail
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}}
+source "$ROOT/scripts/lib/common.sh"
 SHEET=${1:-$ROOT/config/samples/pilot-5.tsv}
 OUT=$ROOT/work/03-rnaseq-pilot/fastq
 SRA=$ROOT/work/03-rnaseq-pilot/sra
-module load sra-tools/3.4.1
-export TMPDIR=/scratch/$USER/t2t-eqtl/tmp/$SLURM_JOB_ID; mkdir -p $TMPDIR; trap 'rm -rf $TMPDIR' EXIT
+t2t_env bio   # STAR, salmon, samtools, ... from pixi.toml (published runs: cluster modules of the same versions)
+t2t_tmpdir "$SLURM_JOB_ID"
 mkdir -p $OUT $SRA
 echo "start $(date -u +%FT%TZ)"
 

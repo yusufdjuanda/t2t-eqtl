@@ -19,17 +19,20 @@ workflow EXPRESSION {
         if (!file("${params.ref_dir}/${ref}/genome.fa").exists()) error "reference ${ref} not found in ${params.ref_dir}"
     }
 
+    // samplesheet `sra` paths are relative to the project root (absolute paths are used as they are)
+    def sraFile = { String s -> file(s.startsWith('/') ? s : "${params.root}/${s}") }
+
     runs = channel.fromPath(sheet)
         .splitCsv(header: true)
         .filter { row -> params.batch == 'all' || row.batch == params.batch.toString() }
         .filter { row -> !file("${params.outdir}/${row.cohort}/${row.run}/complete.txt").exists() }
         .filter { row ->
-            def ok = file("${file(row.sra).parent}/${row.run}.validated").exists()
+            def ok = file("${sraFile(row.sra).parent}/${row.run}.validated").exists()
             if (!ok) log.warn "${row.run}: no validated .sra at ${row.sra}; skipped (rerun fetch-sra-batch.sbatch, then this batch)"
             ok
         }
         .map { row ->
-            def sra = file(row.sra)
+            def sra = sraFile(row.sra)
             def meta = [id: row.run, sample: row.sample, cohort: row.cohort,
                         read_pairs: row.read_pairs as long, read_length: row.read_length as int]
             tuple(meta, sra)

@@ -1,0 +1,25 @@
+# Static checks on every push and pull request: the lock file matches pixi.toml, and scripts pass
+# scripts/00-setup/lint.sh (Python and shell syntax, ShellCheck errors, no hard-coded cluster paths).
+# The analysis itself needs a Slurm cluster and ~2 TB of data, so it is not run here.
+name: check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.67.2
+          environments: lint
+          locked: true      # fails if pixi.lock is out of date with pixi.toml
+          cache: true
+      - name: Lint
+        run: pixi run -e lint lint

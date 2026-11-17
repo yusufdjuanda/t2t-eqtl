@@ -1,14 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=t2t-varmatch
-#SBATCH --partition=cpu
 #SBATCH --cpus-per-task=23
 #SBATCH --mem=96G
 #SBATCH --time=06:00:00
-#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/06-compare/%x_%j.out
-#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/06-compare/%x_%j.err
+#SBATCH --output=logs/06-compare/%x_%j.out
+#SBATCH --error=logs/06-compare/%x_%j.err
 # Step 6: pair common variants between the T2T and GRCh38 genotype sets of the 1,089 expression individuals.
 #
-#   sbatch scripts/06-compare/match-variants.sbatch [min MAF, default 0.01]
+#   scripts/submit.sh scripts/06-compare/match-variants.sbatch [min MAF, default 0.01]
 #
 # Inputs: results/01-genotypes/chm13v2.0/expression/<chr>.bcf (T2T) and
 # results/01-genotypes/grch38/expression/<chr>.bcf (GRCh38). Both: multiallelic sites split,
@@ -24,13 +23,14 @@
 # T2T SYNTENIC flag) and summary.tsv (counts by category x type x MAF bin).
 set -euo pipefail
 MINMAF=${1:-0.01}
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}}
+source "$ROOT/scripts/lib/common.sh"
 T2T=$ROOT/results/01-genotypes/chm13v2.0/expression
 G38=$ROOT/results/01-genotypes/grch38/expression
 CHAIN=$ROOT/data/references/liftover/hs1ToHg38.over.chain.gz
 OUT=$ROOT/results/06-compare/variant-matching
-module load bcftools/1.23.1
-export TMPDIR=/scratch/$USER/t2t-eqtl/tmp/$SLURM_JOB_ID; mkdir -p $TMPDIR; trap 'rm -rf $TMPDIR' EXIT
+t2t_env bio   # STAR, salmon, samtools, ... from pixi.toml (published runs: cluster modules of the same versions)
+t2t_tmpdir "$SLURM_JOB_ID"
 mkdir -p $OUT
 echo "start $(date -u +%FT%TZ) min MAF $MINMAF"
 

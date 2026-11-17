@@ -1,14 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=t2t-fetch3
-#SBATCH --partition=cpu
 #SBATCH --cpus-per-task=6
 #SBATCH --mem=8G
 #SBATCH --time=12:00:00
-#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/04-expression/%x_%j.out
-#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/04-expression/%x_%j.err
+#SBATCH --output=logs/04-expression/%x_%j.out
+#SBATCH --error=logs/04-expression/%x_%j.err
 # Stage 04 (expression), part 1: download one batch of runs from NCBI SRA (the .sra files only; Nextflow converts them to FASTQ).
 #
-#   sbatch scripts/04-expression/fetch-sra-batch.sbatch <cohort> <batch> [samplesheet]      cohort = mage | geuvadis
+#   scripts/submit.sh scripts/04-expression/fetch-sra-batch.sbatch <cohort> <batch> [samplesheet]      cohort = mage | geuvadis
 #
 # Runs = rows of config/samplesheets/<cohort>.csv with that batch number (60 runs, ~160 GB of .sra); the .sra goes
 # to the samplesheet's `sra` path (work/04-expression/sra/<cohort>/<run>/<run>.sra).
@@ -20,13 +19,14 @@
 # run's results are complete, so at most about two batches are on disk at a time (submit-cohort.sh).
 set -euo pipefail
 COHORT=${1:?cohort}; BATCH=${2:?batch}
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}}
+source "$ROOT/scripts/lib/common.sh"
 SHEET=${3:-$ROOT/config/samplesheets/$COHORT.csv}
 SRA=$ROOT/work/04-expression/sra/$COHORT
 MIN_FREE_GB=${MIN_FREE_GB:-400}   # do not download while scratch has less free space than this
 RES=$ROOT/results/04-expression/$COHORT
-module load sra-tools/3.4.1
-export TMPDIR=/scratch/$USER/t2t-eqtl/tmp/$SLURM_JOB_ID; mkdir -p $TMPDIR; trap 'rm -rf $TMPDIR' EXIT
+t2t_env bio   # STAR, salmon, samtools, ... from pixi.toml (published runs: cluster modules of the same versions)
+t2t_tmpdir "$SLURM_JOB_ID"
 mkdir -p $SRA
 echo "start $(date -u +%FT%TZ) $COHORT batch $BATCH"
 

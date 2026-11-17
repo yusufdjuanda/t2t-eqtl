@@ -1,15 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=t2t-g38sub
-#SBATCH --partition=cpu
 #SBATCH --cpus-per-task=23
 #SBATCH --mem=32G
 #SBATCH --time=08:00:00
-#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/01-genotypes/grch38/%x_%j.out
-#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/01-genotypes/grch38/%x_%j.err
+#SBATCH --output=logs/01-genotypes/grch38/%x_%j.out
+#SBATCH --error=logs/01-genotypes/grch38/%x_%j.err
 # Step 4: subset the phased 1000 Genomes GRCh38 panel (NYGC) to the expression individuals, matching the T2T subset
 # (scripts/01-genotypes/chm13v2.0/subset-genotypes.sbatch) as closely as the panels allow.
 #
-#   sbatch scripts/01-genotypes/grch38/subset-genotypes.sbatch [output folder] [sample list]
+#   scripts/submit.sh scripts/01-genotypes/grch38/subset-genotypes.sbatch [output folder] [sample list]
 #
 # Same filters as the T2T subset: the given individuals; multiallelic sites split (norm -m-); AC/AN/MAF recomputed
 # in this subset; monomorphic sites dropped. One addition: SNVs and indels only (-v snps,indels), because the NYGC
@@ -20,12 +19,13 @@
 #   counts-by-chrom.tsv    variant counts by type x MAF bin, and NA12878 het / hom-alt counts
 # Output: summary.tsv (all chromosomes), default folder results/01-genotypes/grch38/.
 set -euo pipefail
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}}
+source "$ROOT/scripts/lib/common.sh"
 OUT=${1:-$ROOT/results/01-genotypes/grch38}
 SAMPLES=${2:-}
 PANEL_DIR=$ROOT/data/external/1kgp-grch38-nygc-phased-20220422
-module load bcftools/1.23.1
-export TMPDIR=/scratch/$USER/t2t-eqtl/tmp/$SLURM_JOB_ID; mkdir -p $TMPDIR; trap 'rm -rf $TMPDIR' EXIT
+t2t_env bio   # STAR, salmon, samtools, ... from pixi.toml (published runs: cluster modules of the same versions)
+t2t_tmpdir "$SLURM_JOB_ID"
 mkdir -p $OUT/expression $OUT/na12878 $TMPDIR/counts
 # default sample list: included individuals of config/samples/expression-individuals.tsv (make-sample-lists.sh)
 if [ -z "$SAMPLES" ]; then

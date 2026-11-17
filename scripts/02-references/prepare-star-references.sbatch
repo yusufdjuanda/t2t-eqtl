@@ -1,15 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=t2t-starref
-#SBATCH --partition=cpu
 #SBATCH --array=0-1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
 #SBATCH --time=04:00:00
-#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/02-references/%x_%A_%a.out
-#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/02-references/%x_%A_%a.err
+#SBATCH --output=logs/02-references/%x_%A_%a.out
+#SBATCH --error=logs/02-references/%x_%A_%a.err
 # Stage 02 (references): build matched STAR references for RNA-seq, one per array task (0 = chm13v2.0, 1 = grch38).
 #
-#   sbatch scripts/02-references/prepare-star-references.sbatch
+#   scripts/submit.sh scripts/02-references/prepare-star-references.sbatch
 #
 # Both use NCBI RefSeq annotation release RS_2025_08 (genes matched by NCBI GeneID). The T2T genome is
 # changed only to remove two asymmetries with GRCh38_noalt (see docs/t2t-eqtl.md, step 2):
@@ -19,7 +18,8 @@
 # GRCh38 is used as is (links). Output in data/star-references/<id>/:
 #   genome.fa(.fai)  annotation.gtf  star-2.7.11b-oh75/  transcripts.fa  genes.tsv  tx2gene.tsv  CHECKSUMS.md5
 set -euo pipefail
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}}
+source "$ROOT/scripts/lib/common.sh"
 REFS=$ROOT/data/references
 T2T_FA=$REFS/chm13v2.0-ncbi/genome/T2T-CHM13v2.0.fa
 T2T_GTF=$REFS/chm13v2.0-ncbi/annotations/ncbi/T2T-CHM13v2.0.ncbiRefSeq.gtf
@@ -28,8 +28,8 @@ G38_GTF=$REFS/grch38-noalt/annotations/ncbi/GRCh38_noalt.ncbiRefSeq.gtf
 IDS=(chm13v2.0 grch38)
 ID=${IDS[$SLURM_ARRAY_TASK_ID]}
 OUT=$ROOT/data/star-references/$ID
-module load samtools/1.23.1 bedtools/2.31.1 star/2.7.11b
-export TMPDIR=/scratch/$USER/t2t-eqtl/tmp/${SLURM_JOB_ID}; mkdir -p $TMPDIR; trap 'rm -rf $TMPDIR' EXIT
+t2t_env bio   # STAR, salmon, samtools, ... from pixi.toml (published runs: cluster modules of the same versions)
+t2t_tmpdir "${SLURM_JOB_ID}"
 mkdir -p $OUT
 echo "start $(date -u +%FT%TZ) $ID"
 

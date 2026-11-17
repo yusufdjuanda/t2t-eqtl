@@ -1,14 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=t2t-ffxref
-#SBATCH --partition=cpu
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
 #SBATCH --time=04:00:00
-#SBATCH --output=/storage/projects/yusuf.maulana/t2t-eqtl/logs/02-references/%x_%j.out
-#SBATCH --error=/storage/projects/yusuf.maulana/t2t-eqtl/logs/02-references/%x_%j.err
+#SBATCH --output=logs/02-references/%x_%j.out
+#SBATCH --error=logs/02-references/%x_%j.err
 # Stage 02 (references): prepare the third reference, FixItFelix's patched GRCh38 (Behera et al. 2023), for RNA-seq.
 #
-#   sbatch scripts/02-references/prepare-ffx-reference.sbatch
+#   scripts/submit.sh scripts/02-references/prepare-ffx-reference.sbatch
 #
 # Source: Zenodo record 7532965, GRCh38_masked_v2_decoy_gene.fasta.gz (md5 35d00c3c48d1849adb8e02086c3a1c70):
 # the GRCh38 no-alt analysis set with the false copies masked (N) and decoy contigs for collapsed genes.
@@ -19,14 +18,15 @@
 # Output: data/star-references/grch38-ffx/ in the same layout as the other references, with STAR indexes for
 # 76 bp (star-2.7.11b-oh75, Geuvadis) and 150 bp reads (star-2.7.11b-oh149, MAGE).
 set -euo pipefail
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}}
+source "$ROOT/scripts/lib/common.sh"
 URL="https://zenodo.org/records/7532965/files/GRCh38_masked_v2_decoy_gene.fasta.gz?download=1"
 MD5=35d00c3c48d1849adb8e02086c3a1c70
 G38=$ROOT/data/star-references/grch38
 OUT=$ROOT/data/star-references/grch38-ffx
 SRC=$ROOT/data/external/fixitfelix-behera2023
-module load samtools/1.23.1 star/2.7.11b
-export TMPDIR=/scratch/$USER/t2t-eqtl/tmp/$SLURM_JOB_ID; mkdir -p $TMPDIR; trap 'rm -rf $TMPDIR' EXIT
+t2t_env bio   # STAR, salmon, samtools, ... from pixi.toml (published runs: cluster modules of the same versions)
+t2t_tmpdir "$SLURM_JOB_ID"
 mkdir -p $OUT $SRC
 echo "start $(date -u +%FT%TZ)"
 

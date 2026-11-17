@@ -474,7 +474,7 @@ def coverage_example(pair=COVERAGE_PAIR, refs=("chm13v2.0", "grch38-ffx"), binsi
     """Mean per-base coverage per genotype group along the exons of a paralog pair, from the ASE target BAMs."""
     import io, shutil, subprocess
     from tensorqtl import pgen
-    sam = shutil.which("samtools") or "/storage/software/envs/samtools/1.23.1/bin/samtools"
+    sam = shutil.which("samtools") or str(ROOT / ".pixi/envs/bio/bin/samtools")  # pixi environment `bio`
     ase = ROOT / "results/06-compare/ase"
     runs = pd.read_csv(ase / "targets/runs.tsv", sep="\t")
     runs = runs[[(ase / "rna" / r / "complete.txt").exists() for r in runs.run]]

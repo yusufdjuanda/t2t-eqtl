@@ -15,14 +15,15 @@
 # genotype subset scripts (01-genotypes/chm13v2.0/subset-genotypes.sbatch, 01-genotypes/grch38/subset-genotypes.sbatch).
 
 set -euo pipefail
-ROOT=/storage/home/yusuf.maulana/research/t2t-eqtl
+ROOT=${T2T_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)}
+source "$ROOT/scripts/lib/common.sh"
 MAGE=$ROOT/data/metadata/mage/ena-PRJNA851328-2026-10-17.tsv
 GEUV=$ROOT/data/metadata/geuvadis/ena-PRJEB3366-fastq-md5-2026-10-17.tsv
 PANEL=$ROOT/data/external/1kgp-chm13v2.0-phased-shapeit5-v1.1/1KGP.CHM13v2.0.whole_genome.recalibrated.snp_indel.pass.phased.native_maps.3202.bcf.gz
 OUT=$ROOT/config/samples/expression-individuals.tsv
-module load bcftools/1.23.1
-mkdir -p /scratch/$USER/t2t-eqtl/tmp
-tmp=$(mktemp -d -p /scratch/$USER/t2t-eqtl/tmp); trap 'rm -rf $tmp' EXIT
+t2t_env bio   # STAR, salmon, samtools, ... from pixi.toml (published runs: cluster modules of the same versions)
+mkdir -p "$T2T_TMP"
+tmp=$(mktemp -d -p "$T2T_TMP"); trap 'rm -rf $tmp' EXIT
 
 # individual IDs from the sample_alias column, found by name
 alias_col() { awk -F'\t' 'NR==1{for(i=1;i<=NF;i++) if($i=="sample_alias") c=i; next} {sub(/^GEUV:/, "", $c); print $c}' "$1" | sort -u; }

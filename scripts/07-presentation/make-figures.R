@@ -28,7 +28,14 @@ sp_col <- c(AFR = "#E69F00", AMR = "#CC79A7", EAS = "#009E73", EUR = "#0072B2", 
 
 # Journal style (Nature: <= 183 mm wide, 7 pt text, no titles; the slide carries the explanation). Used by every figure.
 # Font: Helvetica metrics (TeX Gyre Heros through cairo/fontconfig). PNG for the deck, PDF for the manuscript.
-nat <- theme_classic(base_size = 7, base_family = "TeX Gyre Heros") +
+# Font: TeX Gyre Heros (Helvetica metrics; GUST e-foundry, GUST Font License), installed by
+# scripts/00-setup/install-fonts.sh. Falls back to the default sans font if it is not installed (figures then differ
+# slightly in letter widths, not in content).
+FONT <- if (any(grepl("TeX Gyre Heros", tryCatch(system("fc-list : family", intern = TRUE), error = function(e) ""))))
+  "TeX Gyre Heros" else "sans"
+if (FONT == "sans") message("TeX Gyre Heros not installed: using the default sans font (scripts/00-setup/install-fonts.sh)")
+pdf(NULL)  # no stray Rplots.pdf from functions that open the default device
+nat <- theme_classic(base_size = 7, base_family = FONT) +
   theme(axis.line = element_line(linewidth = 0.25), axis.ticks = element_line(linewidth = 0.25),
         axis.ticks.length = unit(1.2, "pt"), axis.text = element_text(size = 6.5, colour = "black"),
         axis.title = element_text(size = 7), legend.text = element_text(size = 6.5), legend.title = element_text(size = 7),
@@ -53,7 +60,7 @@ map_panel <- function(v, ylab) {
     geom_point(aes(colour = ref), position = position_jitter(width = 0.17, height = 0, seed = 1), size = 0.35, stroke = 0, alpha = 0.45) +
     geom_boxplot(aes(colour = ref), width = 0.5, outlier.shape = NA, fill = NA, linewidth = 0.35) +
     geom_text(data = med, aes(y = m, label = sprintf("%.1f", m)), nudge_x = 0.36, hjust = 0, size = 6.5 / .pt,
-              family = "TeX Gyre Heros") +
+              family = FONT) +
     scale_colour_manual(values = ref_col, guide = "none") +
     scale_x_discrete(labels = c("GRCh38" = "GRCh38", "Patched GRCh38" = "Patched\nGRCh38", "T2T-CHM13" = "T2T-CHM13"), expand = expansion(add = c(0.5, 0.85))) +
     labs(x = NULL, y = ylab) + nat
@@ -72,8 +79,8 @@ log_y <- scale_y_log10(breaks = 10^(0:4), labels = c("1", "10", "100", "1,000", 
 
 # Journal-style versions of Figs 2 and 4-13, plus Figs 17-18 (2026-11-02). One idea per figure, no titles; the
 # slide carries the explanation. Uses nat / save_nat, ref_col, reg_lab / reg_col (defined above).
-lab_txt <- function(...) geom_text(..., size = 6.5 / .pt, family = "TeX Gyre Heros")
-repel <- function(...) geom_text_repel(..., size = 6.5 / .pt, family = "TeX Gyre Heros", segment.size = 0.2,
+lab_txt <- function(...) geom_text(..., size = 6.5 / .pt, family = FONT)
+repel <- function(...) geom_text_repel(..., size = 6.5 / .pt, family = FONT, segment.size = 0.2,
                                        min.segment.length = 0, max.overlaps = 40, seed = 1)
 GSD <- file.path(root, "results/06-compare/eqtl-comparison/mage/gene-sets")
 pairs3 <- c("chm13v2.0-vs-grch38" = "T2T vs\nGRCh38", "grch38-ffx-vs-grch38" = "Patch vs\nGRCh38",
@@ -87,7 +94,7 @@ co2[, cohort := factor(fifelse(cohort == "mage", "MAGE\n(discovery)", "Geuvadis\
 c2 <- co2[, .N, by = .(cohort, superpop)]
 p2 <- ggplot(c2, aes(N, cohort, fill = superpop)) + geom_col(width = 0.6) +
   geom_text(data = c2[N >= 40], aes(label = N), position = position_stack(vjust = 0.5), colour = "white",
-            size = 6.5 / .pt, family = "TeX Gyre Heros") +
+            size = 6.5 / .pt, family = FONT) +
   lab_txt(data = c2[, .(N = sum(N)), by = cohort], aes(N, cohort, label = paste0("n = ", N)), inherit.aes = FALSE, hjust = -0.15) +
   scale_fill_manual(values = c(sp_col, "Not given" = "grey70"), name = NULL) +
   scale_x_continuous(expand = expansion(mult = c(0, 0.15))) +
@@ -114,7 +121,7 @@ eg <- rd("egenes.tsv")
 eg[, ref := factor(ref_lab[reference], levels = ref_lab)]
 eg[, method := factor(fifelse(method == "star", "STAR", "salmon"), levels = c("STAR", "salmon"))]
 p5 <- ggplot(eg, aes(method, egenes, fill = ref)) + geom_col(position = position_dodge(0.75), width = 0.7) +
-  geom_text(aes(label = comma(egenes)), position = position_dodge(0.75), vjust = -0.4, size = 6 / .pt, family = "TeX Gyre Heros") +
+  geom_text(aes(label = comma(egenes)), position = position_dodge(0.75), vjust = -0.4, size = 6 / .pt, family = FONT) +
   scale_fill_manual(values = ref_col, name = NULL) +
   scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.1))) +
   labs(x = NULL, y = "eGenes (FDR 5%)") + nat + theme(legend.position = "bottom")
@@ -181,7 +188,7 @@ gs[, region := factor(reg_lab[region_class], levels = reg_lab)]
 c9 <- gs[, .N, by = .(pattern, region)]
 p9 <- ggplot(c9, aes(pattern, N, fill = region)) + geom_col(width = 0.65) +
   geom_text(data = c9[N >= 4], aes(label = N), position = position_stack(vjust = 0.5), colour = "white",
-            size = 6.5 / .pt, family = "TeX Gyre Heros") +
+            size = 6.5 / .pt, family = FONT) +
   lab_txt(data = c9[, .(N = sum(N)), by = pattern], aes(pattern, N, label = N), inherit.aes = FALSE, vjust = -0.4) +
   scale_fill_manual(values = reg_col, drop = TRUE, name = NULL) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
@@ -253,7 +260,7 @@ p13 <- ggplot(co13, aes(pp4_ffx, pp4_t2t, colour = cl)) +
   geom_segment(data = lo13, aes(x = 0.6, y = ly, xend = pp4_ffx, yend = pp4_t2t), linewidth = 0.2, colour = "grey60",
                inherit.aes = FALSE) +
   geom_text(data = lo13, aes(x = 0.59, y = ly, label = lab), hjust = 1, colour = "#E69F00", size = 6.5 / .pt,
-            family = "TeX Gyre Heros", inherit.aes = FALSE) +
+            family = FONT, inherit.aes = FALSE) +
   scale_colour_manual(values = c("T2T only" = "#0072B2", "Patched GRCh38 only" = "#E69F00", "Both references" = "grey30",
                                  "Suggestive" = "grey70"), name = NULL) +
   guides(colour = guide_legend(ncol = 1, override.aes = list(size = 1.6))) +
@@ -271,7 +278,7 @@ cs[, pair := factor(pair, levels = pairs3)]
 cs[, region := factor(reg_lab[region_class], levels = reg_lab)]
 bar17 <- function(d) ggplot(d, aes(pair, N, fill = region)) + geom_col(width = 0.6) +
   geom_text(data = d[N >= 5], aes(label = N), position = position_stack(vjust = 0.5), colour = "white",
-            size = 6.5 / .pt, family = "TeX Gyre Heros") +
+            size = 6.5 / .pt, family = FONT) +
   lab_txt(data = d[, .(N = sum(N)), by = pair], aes(pair, N, label = N), inherit.aes = FALSE, vjust = -0.4) +
   scale_fill_manual(values = reg_col, drop = TRUE, name = NULL) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
@@ -306,7 +313,7 @@ scatter <- function(pr, xl, yl) {
     geom_abline(slope = 1, intercept = c(-1, 1) * log10(2), linewidth = 0.25, colour = "grey60", linetype = "22") +
     geom_point(colour = "grey80", size = 0.25, stroke = 0) +
     geom_point(data = ch, aes(fill = region), shape = 21, size = 1.0, stroke = 0) +
-    annotate("text", x = 0.6, y = 2.2e4, hjust = 0, vjust = 1, size = 6.5 / .pt, family = "TeX Gyre Heros",
+    annotate("text", x = 0.6, y = 2.2e4, hjust = 0, vjust = 1, size = 6.5 / .pt, family = FONT,
              label = sprintf("%s genes\n%d change ≥ 2-fold", format(nrow(d), big.mark = ","), nrow(ch))) +
     scale_fill_manual(values = reg_col, drop = FALSE, guide = "none") + log_x + log_y +
     coord_equal(xlim = c(0.5, 2.5e4), ylim = c(0.5, 2.5e4)) +
@@ -321,9 +328,9 @@ sh[, `:=`(f = n / sum(n), N = sum(n)), by = grp]
 sh[, grp := factor(grp, levels = c("All\nexpressed", "Patch vs\nGRCh38", "T2T vs\npatched"))]
 p14c <- ggplot(sh, aes(grp, f, fill = region)) + geom_col(width = 0.65, colour = NA) +
   geom_text(data = unique(sh[, .(grp, N)]), aes(grp, 1.02, label = format(N, big.mark = ",", trim = TRUE)),
-            inherit.aes = FALSE, vjust = 0, size = 6.5 / .pt, family = "TeX Gyre Heros") +
+            inherit.aes = FALSE, vjust = 0, size = 6.5 / .pt, family = FONT) +
   geom_text(data = sh[f >= 0.07], aes(label = percent(f, accuracy = 1)), position = position_stack(vjust = 0.5),
-            size = 6.5 / .pt, family = "TeX Gyre Heros", colour = "white") +
+            size = 6.5 / .pt, family = FONT, colour = "white") +
   scale_fill_manual(values = reg_col, drop = FALSE, name = NULL) +
   scale_y_continuous(labels = percent, breaks = seq(0, 1, 0.25), expand = expansion(mult = c(0, 0.08))) +
   labs(x = NULL, y = "Share of genes") + nat
@@ -343,11 +350,11 @@ ex_panel <- function(sym, ylim_top) {
     geom_point(position = position_jitterdodge(jitter.width = 0.25, dodge.width = 0.75, seed = 1), size = 0.3, stroke = 0, alpha = 0.5) +
     geom_boxplot(position = position_dodge(0.75), width = 0.6, outlier.shape = NA, fill = NA, linewidth = 0.3) +
     geom_text(data = sl, aes(x = 0.5, y = ylim_top * c(1, 0.9)[as.integer(ref)], label = txt), hjust = 0, vjust = 1,
-              size = 6.5 / .pt, family = "TeX Gyre Heros", show.legend = FALSE) +
+              size = 6.5 / .pt, family = FONT, show.legend = FALSE) +
     scale_colour_manual(values = ref_col[levels(ex$ref)], name = NULL) +
     scale_x_discrete(drop = TRUE) + coord_cartesian(ylim = c(0, ylim_top), expand = FALSE, xlim = c(0.4, NA)) +
     annotate("text", x = Inf, y = ylim_top, label = sym, hjust = 1, vjust = 1, size = 7 / .pt, fontface = "italic",
-             family = "TeX Gyre Heros") +
+             family = FONT) +
     labs(x = "Copies of the eQTL allele", y = "Expression (CPM)") + nat
 }
 p15a <- ex_panel("PKD1P4-NPIPA8", 50)
@@ -365,7 +372,7 @@ p15c <- ggplot(sc[order(cls != "Neither")], aes(log2fc_star, delta, colour = cls
   geom_point(size = 0.5, stroke = 0) +
   geom_point(data = sc[symbol %in% c("PKD1P4-NPIPA8", "CCZ1")], shape = 21, size = 1.8, stroke = 0.4, colour = "black", fill = NA) +
   geom_text(data = sc[symbol %in% c("PKD1P4-NPIPA8", "CCZ1")][, `:=`(hj = fifelse(symbol == "CCZ1", 1.15, 0.3), vj = fifelse(symbol == "CCZ1", -0.5, -1.2))],
-            aes(label = symbol, hjust = hj, vjust = vj), colour = "black", size = 6.5 / .pt, family = "TeX Gyre Heros", fontface = "italic") +
+            aes(label = symbol, hjust = hj, vjust = vj), colour = "black", size = 6.5 / .pt, family = FONT, fontface = "italic") +
   scale_colour_manual(values = cls_col2, labels = lab2, name = "Changed:") +
   guides(colour = guide_legend(ncol = 2, override.aes = list(size = 1.5))) +
   coord_cartesian(xlim = c(-4, 4), ylim = c(-1.1, 1.1)) +
@@ -407,10 +414,10 @@ b16[, pair := factor(c("chm13v2.0-vs-grch38" = "T2T vs\nGRCh38", "grch38-ffx-vs-
                      levels = c("T2T vs\nGRCh38", "Patch vs\nGRCh38", "T2T vs\npatched"))]
 p16b <- ggplot(b16, aes(pair, N, fill = call)) + geom_col(width = 0.65) +
   geom_text(data = b16[N >= 15], aes(label = N), position = position_stack(vjust = 0.5), size = 6.5 / .pt,
-            family = "TeX Gyre Heros", colour = "white") +
+            family = FONT, colour = "white") +
   geom_text(data = b16[, .(N = sum(N), both = sum(N[call == "Both methods"])), by = pair],
             aes(pair, N, label = sprintf("%d, %d both", N, both)), inherit.aes = FALSE, vjust = -0.4, size = 6.5 / .pt,
-            family = "TeX Gyre Heros") +
+            family = FONT) +
   scale_fill_manual(values = call_col, guide = "none") +
   scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
   labs(x = NULL, y = "Genes changed ≥ 2-fold") + nat
@@ -428,7 +435,7 @@ p19a <- ggplot(px[order(g)], aes(expr_patched, expr_t2t, colour = g)) +
   geom_abline(slope = 1, intercept = 0, linewidth = 0.25, colour = "grey60") +
   geom_point(size = 0.55, stroke = 0, alpha = 0.8) +
   annotate("text", x = lim[1], y = lim[2], label = sprintf("r = %.2f", r19), hjust = 0, vjust = 1, size = 6.5 / .pt,
-           family = "TeX Gyre Heros") +
+           family = FONT) +
   scale_colour_manual(values = gcol, name = "Copies of\nthe allele") + coord_equal(xlim = lim, ylim = lim) +
   guides(colour = guide_legend(override.aes = list(size = 1.6, alpha = 1))) +
   labs(x = "Expression on patched GRCh38 (after covariates)", y = "Expression on T2T (after covariates)") + nat
@@ -487,7 +494,7 @@ p22a <- ggplot(pd22, aes(gene, partner)) +
   geom_hline(yintercept = 0, linewidth = 0.2, colour = "grey80") + geom_vline(xintercept = 0, linewidth = 0.2, colour = "grey80") +
   geom_point(size = 0.5, stroke = 0, alpha = 0.6, colour = "#CC79A7") +
   annotate("text", x = Inf, y = Inf, label = sprintf("r = %.2f", r22), hjust = 1.1, vjust = 1.5, size = 6.5 / .pt,
-           family = "TeX Gyre Heros") +
+           family = FONT) +
   labs(x = bquote("Change in" ~ italic(.(G22)) * ", T2T − patched (CPM)"),
        y = bquote("Change in" ~ italic(.(P22)) ~ "(CPM)")) + nat
 ex22 <- rd("expression-eqtl-examples.tsv")[symbol == G22]
@@ -542,7 +549,7 @@ g23 <- gt(tb) |>
   tab_style(cell_text(color = "#B97A00"), cells_body(columns = `On patched`)) |>
   tab_style(cell_text(weight = "bold"), cells_body(columns = `Change (Δ)`)) |>
   tab_style(cell_text(weight = "bold"), cells_column_labels()) |>
-  tab_options(table.font.names = "TeX Gyre Heros", table.font.size = px(8.5), data_row.padding = px(2.5),
+  tab_options(table.font.names = FONT, table.font.size = px(8.5), data_row.padding = px(2.5),
               column_labels.padding = px(3), source_notes.font.size = px(7.5), table.border.top.color = "black", table.border.bottom.color = "black",
               column_labels.border.bottom.color = "black", table_body.hlines.color = "grey88",
               table.border.top.width = px(1.2), table.border.bottom.width = px(1.2), heading.border.bottom.width = px(0))
@@ -577,7 +584,7 @@ g24 <- gt(tb24) |>
   cols_width(Gene ~ px(92)) |>
   tab_source_note("Shared variant: the variant with the most combined eQTL and GWAS evidence, on the reference where the gene colocalises.") |>
   tab_source_note("PP4: probability that the eQTL and the GWAS signal share one causal variant (coloc); ≥ 0.8 in bold.") |>
-  tab_options(table.font.names = "TeX Gyre Heros", table.font.size = px(9), data_row.padding = px(3),
+  tab_options(table.font.names = FONT, table.font.size = px(9), data_row.padding = px(3),
               column_labels.padding = px(3), source_notes.font.size = px(7.5), table.border.top.color = "black",
               table.border.bottom.color = "black", column_labels.border.bottom.color = "black",
               table_body.hlines.color = "grey88", table.border.top.width = px(1.2), table.border.bottom.width = px(1.2))
@@ -610,7 +617,7 @@ cov_col <- function(gn, ylab = NULL) {
     geom_area(data = d[g == "2 copies"], fill = "#0072B2", alpha = 0.45) +
     geom_line(aes(colour = g), linewidth = 0.3) +
     geom_text(data = rr, aes(x = Inf, y = Inf, label = txt), hjust = 1.05, vjust = 1.4, size = 6.5 / .pt,
-              family = "TeX Gyre Heros", fontface = fifelse(abs(log(rr$r)) > log(1.3), "bold", "plain"), inherit.aes = FALSE) +
+              family = FONT, fontface = fifelse(abs(log(rr$r)) > log(1.3), "bold", "plain"), inherit.aes = FALSE) +
     facet_grid(ref ~ ., switch = "y") +
     scale_colour_manual(values = c("0 copies" = "grey45", "2 copies" = "#0072B2"),
                         labels = sprintf("%s (%d people)", c(gt0, gt2), n25[match(c(0, 2), genotype), n]),
@@ -638,7 +645,7 @@ rs <- rs[, .(txt = sprintf("%s : %s : %s = 1 : %.2f : %.2f", gl[1], gl[2], gl[3]
 p25s <- ggplot(cs, aes(pos_kb, cpm, colour = g)) +
   geom_line(linewidth = 0.35) +
   geom_text(data = rs, aes(x = Inf, y = Inf, label = txt), hjust = 1.03, vjust = 1.4, size = 6 / .pt,
-            family = "TeX Gyre Heros", inherit.aes = FALSE) +
+            family = FONT, inherit.aes = FALSE) +
   facet_grid(ref ~ gene, scales = "free", switch = "y") +
   scale_colour_manual(values = setNames(c("grey55", "#56B4E9", "#0072B2"), levels(cs$g)),
                       name = sprintf("Genotype at %s (effect allele %s):", vs$rsid, eas)) +

@@ -1,10 +1,33 @@
 [workspace]
-channels = ["conda-forge", "bioconda"]
 name = "t2t-eqtl"
-platforms = ["linux-64"]
 version = "0.1.0"
+description = "T2T-native cis-eQTL mapping in lymphoblastoid cell lines: T2T-CHM13 vs GRCh38 vs FixItFelix-patched GRCh38"
+authors = ["Yusuf Maulana"]
+license = "MIT"
+license-file = "LICENSE"
+readme = "README.md"
+repository = "https://github.com/yusufdjuanda/t2t-eqtl"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+# tested with pixi 0.67.2; the lock file format needs at least this version
+requires-pixi = ">=0.67"
 
+# One command per job a reader can run. Heavy stages (01-06) run on Slurm through `submit`; see README.md.
 [tasks]
+setup = { cmd = "bash scripts/00-setup/link-storage.sh", description = "Create data/, results/, logs/, work/ (links from config/site.env, or plain folders)" }
+fonts = { cmd = "bash scripts/00-setup/install-fonts.sh", description = "Install the figure font (TeX Gyre Heros) into ~/.local/share/fonts" }
+checksums = { cmd = "bash scripts/00-setup/checksums.sh write", description = "Record sha256 sums of the downloaded inputs in config/checksums/" }
+verify-data = { cmd = "bash scripts/00-setup/checksums.sh check", description = "Check the downloaded inputs against config/checksums/" }
+submit = { cmd = "bash scripts/submit.sh", description = "Submit a Slurm script from the project root with the site's partition: pixi run submit scripts/<stage>/<job>.sbatch <args>" }
+figure-data = { cmd = "python scripts/07-presentation/prepare-figure-data.py", description = "Collect the tables behind every figure (results/07-presentation/data/)" }
+figures = { cmd = "Rscript scripts/07-presentation/make-figures.R", depends-on = ["figure-data"], description = "Draw the figures (results/07-presentation/figures/)" }
+diagrams = { cmd = """
+dot -Tpng -Gdpi=200 scripts/07-presentation/pipeline.dot -o results/07-presentation/figures/fig01-pipeline.png &&
+dot -Tpdf scripts/07-presentation/method-overview.dot -o results/07-presentation/figures/method-overview.pdf &&
+dot -Tpng -Gdpi=300 scripts/07-presentation/method-overview.dot -o results/07-presentation/figures/method-overview.png
+""", description = "Render the pipeline and method-overview diagrams (Graphviz)" }
+workbook = { cmd = "python scripts/07-presentation/build-workbook.py", depends-on = ["figures", "diagrams"], description = "Write the project overview workbook (results/07-presentation/*.xlsx)" }
+reproduce = { depends-on = ["figures", "diagrams", "workbook"], description = "Rebuild every figure and table from the stage 05-06 results (then: pixi run -e docs data-journey)" }
 
 [dependencies]
 python = "3.11.*"
@@ -29,8 +52,6 @@ r-ggrepel = ">=0.9.8,<0.10"
 r-patchwork = ">=1.3.2,<2"
 "r-data.table" = ">=1.18.6.1,<2"
 r-scales = ">=1.4.0,<2"
-python-pptx = ">=1.0.2,<2"
-defusedxml = ">=0.7.1,<0.8"
 pandoc = ">=3.12.1,<4"
 r-coloc = ">=5.2.3,<6"
 r-susier = ">=0.14.2,<0.15"
@@ -45,10 +66,42 @@ PYTHONPATH = "$PIXI_PROJECT_ROOT/envs/vendor/tensorqtl-1.0.10:$PIXI_PROJECT_ROOT
 # Long-read small-variant calling and phasing for allele-specific expression in SD genes (1KGP ONT CRAMs, 2026-10-29).
 # A separate environment: Clair3 pins its own Python.
 [feature.longread.dependencies]
-clair3 = "*"
-whatshap = "*"
-samtools = "*"
-bcftools = "*"
+clair3 = "==2.0.3"
+whatshap = "==2.8"
+samtools = "==1.25"
+bcftools = "==1.25"
+
+# Command-line tools of stages 01-06 (environment `bio`), pinned to the versions the published results were produced with (the cluster
+# modules star/2.7.11b, salmon/1.11.4, samtools/1.23.1, bcftools/1.23.1, bedtools/2.31.1, sra-tools/3.4.1,
+# minimap2/2.31, nextflow/25.10.4). Scripts load them with `t2t_env bio`
+# (scripts/lib/common.sh). A separate environment: these builds need older system libraries than the R/Python stack.
+[feature.bio.dependencies]
+star = "==2.7.11b"
+salmon = "==1.11.4"
+samtools = "==1.23.1"
+bcftools = "==1.23.1"
+bedtools = "==2.31.1"
+sra-tools = "==3.4.1"
+minimap2 = "==2.31"
+nextflow = "==25.10.4"
+
+# Quarto for docs/data-journey (a separate environment: Quarto pins its own pandoc, older than the default's).
+[feature.docs.dependencies]
+quarto = "==1.10.19"
+
+[feature.docs.tasks]
+data-journey = { cmd = "quarto render docs/data-journey/data-journey.qmd", description = "Render the data-journey walkthrough (docs/data-journey/data-journey.html; run `pixi run figures` first)" }
+
+# Static checks (CI and `pixi run -e lint lint`): Python syntax, shell syntax and ShellCheck errors.
+[feature.lint.dependencies]
+python = "3.11.*"
+shellcheck = ">=0.11.0,<0.12"
+
+[feature.lint.tasks]
+lint = { cmd = "bash scripts/00-setup/lint.sh", description = "Check Python and shell syntax, and ShellCheck errors" }
 
 [environments]
 longread = { features = ["longread"], no-default-feature = true }
+bio = { features = ["bio"], no-default-feature = true }
+lint = { features = ["lint"], no-default-feature = true }
+docs = { features = ["docs"], no-default-feature = true }
