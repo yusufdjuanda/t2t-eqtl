@@ -1,10 +1,6 @@
 # SCM syntax highlighting & preventing 3-way merges
 pixi.lock merge=binary linguist-language=YAML linguist-generated=true -diff
 
-# Rendered documents: generated from their sources (data-journey.qmd); do not diff or count as code
-docs/data-journey/data-journey.html linguist-generated=true -diff
-docs/stage-04-expression.html linguist-generated=true -diff
-
 # Shell scripts always with LF line endings (they fail with CRLF)
 *.sh text eol=lf
 *.sbatch text eol=lf

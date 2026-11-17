@@ -539,7 +539,7 @@ What makes the project run outside Karakoram, following the practices of the cou
 - **Data.** `config/data-sources.tsv`: every input with origin, URL or accession, version or date, local path, the script that fetched it and the published checksum. `pixi run checksums` writes sha256 sums of `data/external/` and `data/references/` to `config/checksums/inputs.sha256`; `pixi run verify-data` checks them.
 - **One command per output.** pixi tasks: `setup`, `fonts`, `checksums`, `verify-data`, `submit`, `figure-data`, `figures`, `diagrams`, `workbook`, `reproduce` (figures, diagrams and workbook from the stage 05–06 results), and `-e docs data-journey`.
 - **Checks.** `pixi run -e lint lint` and GitHub Actions (`.github/workflows/check.yml`): lock file current, Python and shell syntax, ShellCheck errors, no hard-coded paths, data-sources table well formed.
-- **Sharing.** `LICENSE` (MIT, code), `LICENSE-docs.md` (CC BY 4.0, documents and figures; vendored tensorQTL keeps its own licence), `CITATION.cff`, README rewritten as the entry point. `docs/data-journey/data-journey.html` stays committed but is marked as generated.
+- **Sharing.** `LICENSE` (MIT, code), `LICENSE-docs.md` (CC BY 4.0, documents and figures; vendored tensorQTL keeps its own licence), `CITATION.cff`, README rewritten as the entry point. Rendered HTML is not tracked: `docs/data-journey/data-journey.html` is rebuilt with `pixi run -e docs data-journey` (to be published as a release asset or on GitHub Pages), and the old `docs/stage-04-expression.html` export (no source, not referenced) was removed from git.
 
 ## 12. Step log
 

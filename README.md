@@ -13,7 +13,7 @@ Allele-specific expression, to decide which reference is right, is the next step
 | Read this | For |
 |---|---|
 | [`docs/t2t-eqtl.md`](docs/t2t-eqtl.md) | everything: aim, hypotheses, design, data sources, rules, how the code fits together (11.4), reproducibility set-up (11.5), step log, results |
-| [`docs/data-journey/data-journey.html`](docs/data-journey/data-journey.html) | a plain-language walk through the pipeline, following two people and two genes with real numbers |
+| [`docs/data-journey/data-journey.qmd`](docs/data-journey/data-journey.qmd) | a plain-language walk through the pipeline, following two people and two genes with real numbers (render: `pixi run -e docs data-journey`; needs the figures from `pixi run figures`) |
 | [`config/data-sources.tsv`](config/data-sources.tsv) | every input: origin, URL or accession, version, local path, checksum |
 
 ## Requirements

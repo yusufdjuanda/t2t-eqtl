@@ -26,6 +26,10 @@ Rplots.pdf
 .nextflow.log*
 /scripts/04-expression/nextflow/work/
 
+# Rendered documents (build: pixi run -e docs data-journey; published as a release asset / GitHub Pages)
+docs/data-journey/data-journey.html
+docs/stage-04-expression.html
+
 # Quarto intermediates
 /.quarto/
 docs/data-journey/data-journey_files/
