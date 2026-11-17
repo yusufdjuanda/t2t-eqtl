@@ -1,4 +1,6 @@
-# t2t-eqtl
+# How the T2T-CHM13 reference genome changes cis-eQTLs
+
+`t2t-eqtl`
 
 **Which cis-eQTLs change when the reference genome changes?** RNA-seq of lymphoblastoid cell lines (MAGE: 731
 individuals, discovery; Geuvadis: 451, replication) and 1000 Genomes genotypes, processed from the same raw reads on
